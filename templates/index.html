@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ByteBuddy - Terminal-Based AI Coding Assistant</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        'terminal-bg': '#121212',
+                        'terminal-bg-secondary': '#1A1A1A',
+                        'terminal-border': '#2A2A2A',
+                        'electric-blue': '#007BFF',
+                        'bright-blue': '#00BFFF',
+                        'terminal-text': '#E0E0E0',
+                        'terminal-white': '#FFFFFF',
+                        'cyan-accent': '#40E0D0',
+                        'warning-red': '#FF4757',
+                        'success-green': '#2ED573',
+                        'warning-orange': '#FFA726',
+                    },
+                    fontFamily: {
+                        'mono': ['JetBrains Mono', 'Fira Code', 'Monaco', 'Consolas', 'monospace'],
+                    },
+                    animation: {
+                        'typing': 'typing 3.5s steps(30, end), blink-caret .75s step-end infinite',
+                        'matrix-rain': 'matrix-rain 20s linear infinite',
+                        'glitch': 'glitch 2s infinite',
+                        'pulse-glow': 'pulse-glow 2s ease-in-out infinite alternate',
+                        'scan': 'scan 3s infinite',
+                    },
+                    keyframes: {
+                        'typing': {
+                            'from': { width: '0' },
+                            'to': { width: '100%' }
+                        },
+                        'blink-caret': {
+                            'from, to': { 'border-color': 'transparent' },
+                            '50%': { 'border-color': '#007BFF' }
+                        },
+                        'matrix-rain': {
+                            '0%': { transform: 'translateY(-100vh)' },
+                            '100%': { transform: 'translateY(100vh)' }
+                        },
+                        'glitch': {
+                            '0%, 100%': { transform: 'translate(0)' },
+                            '10%': { transform: 'translate(-2px, -2px)' },
+                            '20%': { transform: 'translate(2px, 2px)' },
+                            '30%': { transform: 'translate(-2px, 2px)' },
+                            '40%': { transform: 'translate(2px, -2px)' },
+                            '50%': { transform: 'translate(-2px, -2px)' },
+                            '60%': { transform: 'translate(2px, 2px)' },
+                            '70%': { transform: 'translate(-2px, 2px)' },
+                            '80%': { transform: 'translate(2px, -2px)' },
+                            '90%': { transform: 'translate(-2px, -2px)' }
+                        },
+                        'pulse-glow': {
+                            'from': { 'box-shadow': '0 0 5px #007BFF, 0 0 10px #007BFF, 0 0 15px #007BFF' },
+                            'to': { 'box-shadow': '0 0 10px #007BFF, 0 0 20px #007BFF, 0 0 30px #007BFF' }
+                        },
+                        'scan': {
+                            '0%': { left: '-100%' },
+                            '100%': { left: '100%' }
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .terminal-window {
+            background: linear-gradient(135deg, #121212 0%, #1A1A1A 100%);
+            border: 1px solid #2A2A2A;
+            box-shadow: 0 8px 32px rgba(0, 123, 255, 0.1);
+        }
+        .matrix-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: -1;
+            opacity: 0.05;
+        }
+        .scanline {
+            position: relative;
+            overflow: hidden;
+        }
+        .scanline::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 123, 255, 0.2), transparent);
+            animation: scan 3s infinite;
+        }
+        .ascii-art {
+            font-family: 'Courier New', monospace;
+            white-space: pre;
+            line-height: 1;
+        }
+        .glow-effect {
+            text-shadow: 0 0 10px #007BFF, 0 0 20px #007BFF, 0 0 30px #007BFF;
+        }
+        .terminal-window:hover {
+            box-shadow: 0 8px 32px rgba(0, 123, 255, 0.2);
+            transition: box-shadow 0.3s ease;
+        }
+    </style>
+</head>
+<body class="bg-terminal-bg text-terminal-text font-mono overflow-x-hidden">
+    <!-- Matrix Rain Background -->
+    <div class="matrix-bg">
+        <div class="absolute inset-0">
+            <div class="text-electric-blue text-xs leading-none opacity-20 animate-matrix-rain">
+                01001000 01100101 01101100 01101100 01101111<br>
+                01010111 01101111 01110010 01101100 01100100<br>
+                01000010 01111001 01110100 01100101 01000010<br>
+                01110101 01100100 01100100 01111001
+            </div>
+        </div>
+    </div>
+
+    <!-- Terminal Navigation -->
+    <nav class="terminal-window m-4 rounded-lg sticky top-4 z-50 backdrop-blur-md">
+        <div class="flex items-center justify-between p-4">
+            <!-- Terminal Header -->
+            <div class="flex items-center space-x-2">
+                <div class="flex space-x-2">
+                    <div class="w-3 h-3 bg-warning-red rounded-full"></div>
+                    <div class="w-3 h-3 bg-warning-orange rounded-full"></div>
+                    <div class="w-3 h-3 bg-success-green rounded-full"></div>
+                </div>
+                <span class="text-gray-400 ml-4">user@bytebuddy:~$</span>
+                <span class="text-electric-blue animate-pulse">|</span>
+            </div>
+            
+            <!-- Navigation Commands -->
+            <div class="hidden md:flex space-x-6 text-sm">
+                <a href="#home" class="text-electric-blue hover:text-bright-blue transition-colors glow-effect">./home</a>
+                <a href="#about" class="text-terminal-text hover:text-electric-blue transition-colors">./about</a>
+                <a href="#features" class="text-terminal-text hover:text-electric-blue transition-colors">./features</a>
+                <a href="#languages" class="text-terminal-text hover:text-electric-blue transition-colors">./languages</a>
+                <a href="#contact" class="text-terminal-text hover:text-electric-blue transition-colors">./contact</a>
+            </div>
+            
+            <!-- Terminal Toggle -->
+            <button id="themeToggle" class="text-electric-blue hover:text-bright-blue transition-colors">
+                <span class="text-sm">[TOGGLE]</span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section id="home" class="min-h-screen flex items-center justify-center px-4">
+        <div class="max-w-6xl mx-auto text-center">
+            <!-- ASCII Art Logo -->
+            <div class="mb-8 text-electric-blue text-xs md:text-sm ascii-art animate-pulse-glow">
+╔══════════════════════════════════════════════════════════╗
+║  ██████╗ ██╗   ██╗████████╗███████╗██████╗ ██╗   ██╗██████╗ ██████╗ ██╗   ██╗ ║
+║  ██╔══██╗╚██╗ ██╔╝╚══██╔══╝██╔════╝██╔══██╗██║   ██║██╔══██║██╔══██║╚██╗ ██╔╝ ║
+║  ██████╔╝ ╚████╔╝    ██║   █████╗  ██████╔╝██║   ██║██║  ██║██║  ██║ ╚████╔╝  ║
+║  ██╔══██╗  ╚██╔╝     ██║   ██╔══╝  ██╔══██╗██║   ██║██║  ██║██║  ██║  ╚██╔╝   ║
+║  ██████╔╝   ██║      ██║   ███████╗██████╔╝╚██████╔╝██████╔╝██████╔╝   ██║    ║
+║  ╚═════╝    ╚═╝      ╚═╝   ╚══════╝╚═════╝  ╚═════╝ ╚═════╝ ╚═════╝    ╚═╝    ║
+╚══════════════════════════════════════════════════════════╝
+            </div>
+            
+            <!-- Terminal Welcome Message -->
+            <div class="terminal-window p-8 mb-8 max-w-4xl mx-auto">
+                <div class="flex items-center mb-4">
+                    <span class="text-electric-blue">root@bytebuddy</span>
+                    <span class="text-gray-400">:</span>
+                    <span class="text-bright-blue">~</span>
+                    <span class="text-gray-400"># </span>
+                    <span class="typing-animation text-terminal-white">./initialize_ai_assistant.sh</span>
+                </div>
+                <div class="text-left space-y-2 text-sm">
+                    <div class="text-gray-400">[INFO] Loading AI modules...</div>
+                    <div class="text-success-green">[SUCCESS] Code completion engine initialized</div>
+                    <div class="text-success-green">[SUCCESS] Error analysis system online</div>
+                    <div class="text-success-green">[SUCCESS] Multi-language support loaded</div>
+                    <div class="text-bright-blue">[READY] ByteBuddy AI Assistant v2.1.0</div>
+                </div>
+            </div>
+            
+            <h1 class="text-2xl md:text-4xl lg:text-6xl font-bold mb-6 text-terminal-white">
+                <span class="text-electric-blue">></span> AI-Powered Terminal
+                <br>
+                <span class="text-bright-blue glow-effect">Coding Companion</span>
+            </h1>
+            
+            <p class="text-lg md:text-xl text-terminal-text mb-8 max-w-3xl mx-auto">
+                <span class="text-cyan-accent"># </span>Built for developers who live in the terminal. 
+                Get instant code help, debug errors, and master programming concepts 
+                <span class="text-electric-blue">without leaving your comfort zone</span>.
+            </p>
+            
+            <!-- Command Buttons -->
+            <div class="flex flex-col sm:flex-row justify-center gap-4 mb-8">
+                <button class="bg-electric-blue text-terminal-white px-8 py-3 rounded font-bold hover:bg-bright-blue transition-all duration-300 transform hover:scale-105 scanline">
+                    $ sudo ./start_coding
+                </button>
+                <button class="border-2 border-electric-blue text-electric-blue px-8 py-3 rounded font-bold hover:bg-electric-blue hover:text-terminal-white transition-all duration-300">
+                    man bytebuddy
+                </button>
+            </div>
+            
+            <!-- Terminal Status -->
+            <div class="text-xs text-gray-500">
+                <span class="text-electric-blue">●</span> System Status: ONLINE 
+                <span class="mx-4">|</span> 
+                <span class="text-bright-blue">●</span> AI Engine: READY 
+                <span class="mx-4">|</span> 
+                <span class="text-cyan-accent">●</span> Multi-Lang Support: ACTIVE
+            </div>
+        </div>
+    </section>
+
+    <!-- About Section -->
+    <section id="about" class="py-20 px-4">
+        <div class="max-w-6xl mx-auto">
+            <div class="terminal-window p-8 mb-12">
+                <div class="flex items-center mb-6">
+                    <span class="text-electric-blue">user@bytebuddy</span>
+                    <span class="text-gray-400">:</span>
+                    <span class="text-bright-blue">~</span>
+                    <span class="text-gray-400">$ </span>
+                    <span class="text-terminal-white">cat about.md</span>
+                </div>
+                
+                <div class="grid md:grid-cols-2 gap-12">
+                    <div>
+                        <h3 class="text-2xl font-bold text-electric-blue mb-4"># About ByteBuddy</h3>
+                        <div class="text-terminal-text space-y-4">
+                            <p>
+                                <span class="text-cyan-accent">// </span>
+                                ByteBuddy isn't your typical AI assistant. Built by developers who understand 
+                                the terminal lifestyle, we speak your language - literally.
+                            </p>
+                            <p>
+                                <span class="text-bright-blue">/* </span>
+                                From cryptic compiler errors to complex algorithms, 
+                                ByteBuddy provides instant, contextual help without the corporate fluff.
+                                <span class="text-bright-blue"> */</span>
+                            </p>
+                        </div>
+                        
+                        <!-- Features List -->
+                        <div class="mt-6 space-y-3">
+                            <div class="flex items-center">
+                                <span class="text-electric-blue mr-3">✓</span>
+                                <span class="text-terminal-text">24/7 terminal-based assistance</span>
+                            </div>
+                            <div class="flex items-center">
+                                <span class="text-electric-blue mr-3">✓</span>
+                                <span class="text-terminal-text">Zero-bullshit explanations</span>
+                            </div>
+                            <div class="flex items-center">
+                                <span class="text-electric-blue mr-3">✓</span>
+                                <span class="text-terminal-text">Multi-language debugging</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- System Info Panel -->
+                    <div class="bg-terminal-bg-secondary border border-terminal-border rounded p-6">
+                        <div class="text-xs text-gray-400 mb-4">System Information</div>
+                        <div class="space-y-2 text-sm">
+                            <div class="flex justify-between">
+                                <span class="text-gray-400">OS:</span>
+                                <span class="text-electric-blue">ByteBuddy Linux</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-400">Kernel:</span>
+                                <span class="text-bright-blue">AI-Engine-v2.1.0</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-400">Shell:</span>
+                                <span class="text-cyan-accent">/bin/code-helper</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-400">Uptime:</span>
+                                <span class="text-terminal-white">24/7/365</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-400">Memory:</span>
+                                <span class="text-electric-blue">∞ TB Available</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Activity Monitor -->
+                        <div class="mt-6">
+                            <div class="text-xs text-gray-400 mb-2">Activity Monitor</div>
+                            <div class="space-y-1">
+                                <div class="flex items-center">
+                                    <div class="w-16 text-xs text-gray-400">CPU:</div>
+                                    <div class="flex-1 bg-gray-800 h-2 rounded">
+                                        <div class="bg-electric-blue h-2 rounded animate-pulse" style="width: 23%"></div>
+                                    </div>
+                                    <div class="text-xs text-electric-blue ml-2">23%</div>
+                                </div>
+                                <div class="flex items-center">
+                                    <div class="w-16 text-xs text-gray-400">RAM:</div>
+                                    <div class="flex-1 bg-gray-800 h-2 rounded">
+                                        <div class="bg-bright-blue h-2 rounded" style="width: 67%"></div>
+                                    </div>
+                                    <div class="text-xs text-bright-blue ml-2">67%</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="py-20 px-4">
+        <div class="max-w-6xl mx-auto">
+            <div class="text-center mb-12">
+                <h2 class="text-3xl md:text-4xl font-bold text-terminal-white mb-4">
+                    <span class="text-electric-blue">$ </span>ls ./features/
+                </h2>
+                <p class="text-gray-400">Core modules and capabilities available in your ByteBuddy terminal</p>
+            </div>
+            
+            <div class="grid md:grid-cols-3 gap-6">
+                <!-- Code Completion -->
+                <div class="terminal-window p-6 hover:border-electric-blue transition-all duration-300 group">
+                    <div class="flex items-center mb-4">
+                        <span class="text-electric-blue mr-2">></span>
+                        <span class="text-terminal-white font-bold">code_analysis.py</span>
+                    </div>
+                    <div class="text-sm mb-4">
+                        <div class="text-gray-400"># Smart code suggestions</div>
+                        <div class="text-bright-blue">def intelligent_helpercomplete():</div>
+                        <div class="text-terminal-white ml-4">return context_aware_suggestions</div>
+                    </div>
+                    <div class="text-xs text-gray-400 space-y-1">
+                        <div>• Context-aware AI suggestions</div>
+                        <div>• Multi-language support</div>
+                        <div>• Real-time code analysis</div>
+                    </div>
+                    <div class="mt-4 text-xs">
+                        <span class="text-electric-blue">Status:</span> 
+                        <span class="text-terminal-white">ACTIVE</span>
+                    </div>
+                </div>
+                
+                <!-- Error Debugging -->
+                <div class="terminal-window p-6 hover:border-warning-red transition-all duration-300 group">
+                    <div class="flex items-center mb-4">
+                        <span class="text-warning-red mr-2">!</span>
+                        <span class="text-terminal-white font-bold">debug_master.sh</span>
+                    </div>
+                    <div class="text-sm mb-4">
+                        <div class="text-gray-400"># Process error messages</div>
+                        <div class="text-warning-red">ERROR: Segmentation fault</div>
+                        <div class="text-success-green">SOLUTION: Buffer overflow detected</div>
+                        <div class="text-bright-blue">FIX: Check array bounds</div>
+                    </div>
+                    <div class="text-xs text-gray-400 space-y-1">
+                        <div>• Instant error interpretation</div>
+                        <div>• Step-by-step debugging</div>
+                        <div>• Common pitfall detection</div>
+                    </div>
+                    <div class="mt-4 text-xs">
+                        <span class="text-warning-red">Status:</span> 
+                        <span class="text-terminal-white">MONITORING</span>
+                    </div>
+                </div>
+                
+                <!-- Learning Module -->
+                <div class="terminal-window p-6 hover:border-bright-blue transition-all duration-300 group">
+                    <div class="flex items-center mb-4">
+                        <span class="text-bright-blue mr-2">?</span>
+                        <span class="text-terminal-white font-bold">learn_concepts.md</span>
+                    </div>
+                    <div class="text-sm mb-4">
+                        <div class="text-gray-400">## Algorithm Complexity</div>
+                        <div class="text-terminal-white">O(n) - Linear Time</div>
+                        <div class="text-success-green">Best for: Sequential processing</div>
+                        <div class="text-cyan-accent">Example: Array traversal</div>
+                    </div>
+                    <div class="text-xs text-gray-400 space-y-1">
+                        <div>• Interactive concept explanations</div>
+                        <div>• Visual algorithm breakdown</div>
+                        <div>• Hands-on examples</div>
+                    </div>
+                    <div class="mt-4 text-xs">
+                        <span class="text-bright-blue">Status:</span> 
+                        <span class="text-terminal-white">LEARNING</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Languages Section -->
+    <section id="languages" class="py-20 px-4">
+        <div class="max-w-6xl mx-auto">
+            <div class="text-center mb-12">
+                <h2 class="text-3xl md:text-4xl font-bold text-terminal-white mb-4">
+                    <span class="text-cyan-accent">$ </span>which languages
+                </h2>
+                <p class="text-gray-400">Supported programming languages and environments</p>
+            </div>
+            
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <!-- Python -->
+                <div class="terminal-window p-4 text-center hover:border-yellow-500 transition-all duration-300 group cursor-pointer">
+                    <div class="text-2xl mb-2">🐍</div>
+                    <div class="text-terminal-white font-bold">Python</div>
+                    <div class="text-xs text-gray-400 mt-2">v3.9+</div>
+                    <div class="mt-2 text-xs text-yellow-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                        pip install intelligence
+                    </div>
+                </div>
+                
+                <!-- JavaScript -->
+                <div class="terminal-window p-4 text-center hover:border-yellow-400 transition-all duration-300 group cursor-pointer">
+                    <div class="text-2xl mb-2">⚡</div>
+                    <div class="text-terminal-white font-bold">JavaScript</div>
+                    <div class="text-xs text-gray-400 mt-2">ES6+/Node.js</div>
+                    <div class="mt-2 text-xs text-yellow-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                        npm install --global help
+                    </div>
+                </div>
+                
+                <!-- Java -->
+                <div class="terminal-window p-4 text-center hover:border-orange-500 transition-all duration-300 group cursor-pointer">
+                    <div class="text-2xl mb-2">☕</div>
+                    <div class="text-terminal-white font-bold">Java</div>
+                    <div class="text-xs text-gray-400 mt-2">JDK 11+</div>
+                    <div class="mt-2 text-xs text-orange-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                        javac Assistant.java
+                    </div>
+                </div>
+                
+                <!-- C++ -->
+                <div class="terminal-window p-4 text-center hover:border-blue-500 transition-all duration-300 group cursor-pointer">
+                    <div class="text-2xl mb-2">⚙️</div>
+                    <div class="text-terminal-white font-bold">C++</div>
+                    <div class="text-xs text-gray-400 mt-2">C++17/20</div>
+                    <div class="mt-2 text-xs text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                        g++ -std=c++17 main.cpp
+                    </div>
+                </div>
+                
+                <!-- Go -->
+                <div class="terminal-window p-4 text-center hover:border-cyan-500 transition-all duration-300 group cursor-pointer">
+                    <div class="text-2xl mb-2">🔷</div>
+                    <div class="text-terminal-white font-bold">Go</div>
+                    <div class="text-xs text-gray-400 mt-2">v1.18+</div>
+                    <div class="mt-2 text-xs text-cyan-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                        go run main.go
+                    </div>
+                </div>
+                
+                <!-- Rust -->
+                <div class="terminal-window p-4 text-center hover:border-orange-600 transition-all duration-300 group cursor-pointer">
+                    <div class="text-2xl mb-2">🦀</div>
+                    <div class="text-terminal-white font-bold">Rust</div>
+                    <div class="text-xs text-gray-400 mt-2">Latest</div>
+                    <div class="mt-2 text-xs text-orange-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                        cargo run --release
+                    </div>
+                </div>
+                
+                <!-- Shell -->
+                <div class="terminal-window p-4 text-center hover:border-electric-blue transition-all duration-300 group cursor-pointer">
+                    <div class="text-2xl mb-2">🐚</div>
+                    <div class="text-terminal-white font-bold">Shell</div>
+                    <div class="text-xs text-gray-400 mt-2">Bash/Zsh</div>
+                    <div class="mt-2 text-xs text-electric-blue opacity-0 group-hover:opacity-100 transition-opacity">
+                        chmod +x script.sh
+                    </div>
+                </div>
+                
+                <!-- More -->
+                <div class="terminal-window p-4 text-center hover:border-purple-500 transition-all duration-300 group cursor-pointer">
+                    <div class="text-2xl mb-2">📦</div>
+                    <div class="text-terminal-white font-bold">More</div>
+                    <div class="text-xs text-gray-400 mt-2">C, PHP, Ruby...</div>
+                    <div class="mt-2 text-xs text-purple-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                        git clone more-langs
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Contact Section -->
+    <section id="contact" class="py-20 px-4">
+        <div class="max-w-4xl mx-auto">
+            <div class="text-center mb-12">
+                <h2 class="text-3xl md:text-4xl font-bold text-terminal-white mb-4">
+                    <span class="text-electric-blue">$ </span>./contact --help
+                </h2>
+                <p class="text-gray-400">Reach out to the development team</p>
+            </div>
+            
+            <div class="terminal-window p-8">
+                <div class="flex items-center mb-6">
+                    <span class="text-electric-blue">root@bytebuddy</span>
+                    <span class="text-gray-400">:</span>
+                    <span class="text-bright-blue">~/contact</span>
+                    <span class="text-gray-400"># </span>
+                    <span class="text-terminal-white">nano message.txt</span>
+                </div>
+                
+                <div class="grid md:grid-cols-2 gap-8">
+                    <!-- Contact Form -->
+                    <div>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-electric-blue text-sm mb-2">Subject:</label>
+                                <select class="w-full bg-terminal-bg-secondary border border-terminal-border text-terminal-white p-3 rounded focus:border-electric-blue focus:outline-none">
+                                    <option>Bug Report</option>
+                                    <option>Feature Request</option>
+                                    <option>General Question</option>
+                                    <option>Collaboration</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-electric-blue text-sm mb-2">Message:</label>
+                                <textarea rows="4" class="w-full bg-terminal-bg-secondary border border-terminal-border text-terminal-white p-3 rounded focus:border-electric-blue focus:outline-none" placeholder="# Your message here..."></textarea>
+                            </div>
+                            <button class="w-full bg-electric-blue text-terminal-white py-3 rounded font-bold hover:bg-bright-blue transition-all duration-300">
+                                $ send_message --now
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Contact Info -->
+                    <div>
+                        <div class="bg-terminal-bg-secondary border border-terminal-border rounded p-6">
+                            <div class="text-electric-blue text-sm mb-4"># Contact Information</div>
+                            <div class="space-y-3 text-sm">
+                                <div class="flex items-center">
+                                    <span class="text-gray-400 w-16">Email:</span>
+                                    <span class="text-terminal-white">dev@bytebuddy.terminal</span>
+                                </div>
+                                <div class="flex items-center">
+                                    <span class="text-gray-400 w-16">IRC:</span>
+                                    <span class="text-bright-blue">#bytebuddy @ freenode</span>
+                                </div>
+                                <div class="flex items-center">
+                                    <span class="text-gray-400 w-16">Git:</span>
+                                    <span class="text-cyan-accent">github.com/bytebuddy</span>
+                                </div>
+                                <div class="flex items-center">
+                                    <span class="text-gray-400 w-16">Status:</span>
+                                    <span class="text-electric-blue">Online 24/7</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- System Status -->
+                        <div class="bg-terminal-bg-secondary border border-terminal-border rounded p-6 mt-6">
+                            <div class="text-electric-blue text-sm mb-4"># System Status</div>
+                            <div class="space-y-2 text-xs">
+                                <div class="flex justify-between">
+                                    <span class="text-gray-400">API Status:</span>
+                                    <span class="text-electric-blue">● OPERATIONAL</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-gray-400">Response Time:</span>
+                                    <span class="text-bright-blue">< 100ms</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-gray-400">Uptime:</span>
+                                    <span class="text-terminal-white">99.99%</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-gray-400">Last Deploy:</span>
+                                    <span class="text-cyan-accent">2 hours ago</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Quick Commands -->
+                        <div class="mt-6 text-xs">
+                            <div class="text-gray-400 mb-2"># Quick Commands:</div>
+                            <div class="space-y-1 font-mono">
+                                <div><span class="text-electric-blue">$</span> curl -X POST api.bytebuddy.dev/help</div>
+                                <div><span class="text-electric-blue">$</span> ssh support@bytebuddy.terminal</div>
+                                <div><span class="text-electric-blue">$</span> git clone help.bytebuddy.dev</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-12 px-4 border-t border-terminal-border">
+        <div class="max-w-6xl mx-auto">
+            <div class="terminal-window p-6">
+                <div class="grid md:grid-cols-4 gap-6 text-sm">
+                    <!-- Company -->
+                    <div>
+                        <div class="text-electric-blue font-bold mb-3"># ByteBuddy</div>
+                        <p class="text-gray-400 text-xs mb-4">
+                            Built by developers, for developers. 
+                            No corporate BS, just pure coding assistance.
+                        </p>
+                        <div class="flex space-x-3">
+                            <a href="#" class="text-gray-400 hover:text-electric-blue transition-colors">
+                                <span class="text-xs">[GIT]</span>
+                            </a>
+                            <a href="#" class="text-gray-400 hover:text-bright-blue transition-colors">
+                                <span class="text-xs">[IRC]</span>
+                            </a>
+                            <a href="#" class="text-gray-400 hover:text-cyan-accent transition-colors">
+                                <span class="text-xs">[DOCS]</span>
+                            </a>
+                        </div>
+                    </div>
+                    
+                    <!-- Navigation -->
+                    <div>
+                        <div class="text-electric-blue font-bold mb-3"># Navigation</div>
+                        <div class="space-y-2 text-xs">
+                            <div><a href="#home" class="text-gray-400 hover:text-terminal-white transition-colors">./home</a></div>
+                            <div><a href="#about" class="text-gray-400 hover:text-terminal-white transition-colors">./about</a></div>
+                            <div><a href="#features" class="text-gray-400 hover:text-terminal-white transition-colors">./features</a></div>
+                            <div><a href="#languages" class="text-gray-400 hover:text-terminal-white transition-colors">./languages</a></div>
+                            <div><a href="#contact" class="text-gray-400 hover:text-terminal-white transition-colors">./contact</a></div>
+                        </div>
+                    </div>
+                    
+                    <!-- Resources -->
+                    <div>
+                        <div class="text-electric-blue font-bold mb-3"># Resources</div>
+                        <div class="space-y-2 text-xs">
+                            <div><a href="#" class="text-gray-400 hover:text-terminal-white transition-colors">man pages</a></div>
+                            <div><a href="#" class="text-gray-400 hover:text-terminal-white transition-colors">code examples</a></div>
+                            <div><a href="#" class="text-gray-400 hover:text-terminal-white transition-colors">debugging guide</a></div>
+                            <div><a href="#" class="text-gray-400 hover:text-terminal-white transition-colors">api reference</a></div>
+                            <div><a href="#" class="text-gray-400 hover:text-terminal-white transition-colors">community wiki</a></div>
+                        </div>
+                    </div>
+                    
+                    <!-- System Info -->
+                    <div>
+                        <div class="text-electric-blue font-bold mb-3"># System</div>
+                        <div class="space-y-2 text-xs">
+                            <div class="flex justify-between">
+                                <span class="text-gray-400">Version:</span>
+                                <span class="text-terminal-white">v2.1.0</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-400">Build:</span>
+                                <span class="text-bright-blue">#1024</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-400">License:</span>
+                                <span class="text-cyan-accent">MIT</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-400">Runtime:</span>
+                                <span class="text-electric-blue">24/7</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Bottom -->
+                <div class="mt-8 pt-6 border-t border-terminal-border">
+                    <div class="flex flex-col md:flex-row justify-between items-center text-xs">
+                        <div class="text-gray-400">
+                            <span class="text-electric-blue">©</span> 2024 ByteBuddy Terminal. 
+                            <span class="text-bright-blue">All rights reserved</span>.
+                        </div>
+                        <div class="flex items-center mt-4 md:mt-0 space-x-4">
+                            <span class="text-gray-400">Powered by:</span>
+                            <span class="text-electric-blue">AI Engine v2.1</span>
+                            <span class="text-gray-400">|</span>
+                            <span class="text-bright-blue">Terminal UI</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Back to Top -->
+    <button id="backToTop" class="fixed bottom-8 right-8 bg-electric-blue text-terminal-white p-3 rounded-full opacity-0 invisible transition-all duration-300 hover:bg-bright-blue">
+        <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"></path>
+        </svg>
+    </button>
+
+    <!-- JavaScript -->
+    <script>
+        // Typing animation for hero section
+        function typeWriter(element, text, speed = 100) {
+            let i = 0;
+            element.innerHTML = '';
+            function type() {
+                if (i < text.length) {
+                    element.innerHTML += text.charAt(i);
+                    i++;
+                    setTimeout(type, speed);
+                }
+            }
+            type();
+        }
+
+        // Initialize typing animation
+        document.addEventListener('DOMContentLoaded', function() {
+            const typingElement = document.querySelector('.typing-animation');
+            if (typingElement) {
+                setTimeout(() => {
+                    typeWriter(typingElement, './initialize_ai_assistant.sh', 80);
+                }, 1000);
+            }
+        });
+
+        // Smooth scrolling
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+
+        // Back to top functionality
+        const backToTopBtn = document.getElementById('backToTop');
+        
+        window.addEventListener('scroll', () => {
+            if (window.pageYOffset > 300) {
+                backToTopBtn.classList.remove('opacity-0', 'invisible');
+                backToTopBtn.classList.add('opacity-100', 'visible');
+            } else {
+                backToTopBtn.classList.add('opacity-0', 'invisible');
+                backToTopBtn.classList.remove('opacity-100', 'visible');
+            }
+        });
+
+        backToTopBtn.addEventListener('click', () => {
+            window.scrollTo({
+                top: 0,
+                behavior: 'smooth'
+            });
+        });
+
+        // Terminal effects
+        document.addEventListener('DOMContentLoaded', function() {
+            // Add blinking cursor effect to various elements
+            const cursors = document.querySelectorAll('.cursor');
+            cursors.forEach(cursor => {
+                setInterval(() => {
+                    cursor.style.opacity = cursor.style.opacity === '0' ? '1' : '0';
+                }, 500);
+            });
+
+            // Simulate terminal loading in hero section
+            setTimeout(() => {
+                const terminalLines = document.querySelectorAll('.terminal-window .text-left > div');
+                terminalLines.forEach((line, index) => {
+                    setTimeout(() => {
+                        line.style.opacity = '1';
+                        line.style.transform = 'translateX(0)';
+                    }, index * 300);
+                });
+            }, 2000);
+        });
+
+        // Matrix rain effect (enhanced)
+        function createMatrixRain() {
+            const matrixContainer = document.querySelector('.matrix-bg');
+            const characters = '01アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン';
+            
+            for (let i = 0; i < 50; i++) {
+                const span = document.createElement('span');
+                span.style.position = 'absolute';
+                span.style.left = Math.random() * 100 + '%';
+                span.style.animationDuration = (Math.random() * 3 + 2) + 's';
+                span.style.animationDelay = Math.random() * 2 + 's';
+                span.style.fontSize = (Math.random() * 10 + 10) + 'px';
+                span.style.color = '#007BFF';
+                span.style.opacity = Math.random() * 0.3;
+                span.classList.add('animate-matrix-rain');
+                span.textContent = characters[Math.floor(Math.random() * characters.length)];
+                matrixContainer.appendChild(span);
+            }
+        }
+
+        // Initialize matrix effect
+        createMatrixRain();
+
+        // Theme toggle (enhanced for terminal feel)
+        const themeToggle = document.getElementById('themeToggle');
+        themeToggle.addEventListener('click', () => {
+            // For now, just show a terminal message
+            const message = document.createElement('div');
+            message.className = 'fixed top-20 right-4 bg-terminal-bg-secondary border border-electric-blue text-electric-blue p-4 text-sm rounded z-50';
+            message.innerHTML = '<div>$ toggle_theme --status</div><div class="text-bright-blue">INFO: Dark mode is default</div><div class="text-gray-400">Terminal theme: ACTIVE</div>';
+            document.body.appendChild(message);
+            
+            setTimeout(() => {
+                message.remove();
+            }, 3000);
+        });
+
+        // Add glitch effect to logo occasionally
+        setInterval(() => {
+            const logo = document.querySelector('.ascii-art');
+            if (logo && Math.random() < 0.1) { // 10% chance every interval
+                logo.classList.add('animate-glitch');
+                setTimeout(() => {
+                    logo.classList.remove('animate-glitch');
+                }, 2000);
+            }
+        }, 10000);
+
+        // Terminal command simulation
+        function simulateTerminalCommand(element, commands) {
+            let commandIndex = 0;
+            
+            function executeCommand() {
+                if (commandIndex < commands.length) {
+                    const command = commands[commandIndex];
+                    typeWriter(element, command, 50);
+                    commandIndex++;
+                    setTimeout(() => {
+                        element.innerHTML = '';
+                        setTimeout(executeCommand, 500);
+                    }, command.length * 50 + 2000);
+                } else {
+                    commandIndex = 0;
+                    setTimeout(executeCommand, 3000);
+                }
+            }
+            
+            executeCommand();
+        }
+
+        // Enhanced scroll animations
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -100px 0px'
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.style.opacity = '1';
+                    entry.target.style.transform = 'translateY(0)';
+                    
+                    // Add special effects for different sections
+                    if (entry.target.classList.contains('terminal-window')) {
+                        entry.target.style.borderColor = '#007BFF';
+                        setTimeout(() => {
+                            entry.target.style.borderColor = '#2A2A2A';
+                        }, 1000);
+                    }
+                }
+            });
+        }, observerOptions);
+
+        // Apply animations to all terminal windows and cards
+        document.querySelectorAll('.terminal-window, .grid > div').forEach((el, index) => {
+            el.style.opacity = '0';
+            el.style.transform = 'translateY(30px)';
+            el.style.transition = `opacity 0.8s ease ${index * 0.1}s, transform 0.8s ease ${index * 0.1}s, border-color 0.3s ease`;
+            observer.observe(el);
+        });
+
+        // Add blue glow effects on hover
+        document.querySelectorAll('.terminal-window').forEach(window => {
+            window.addEventListener('mouseenter', () => {
+                window.style.boxShadow = '0 8px 32px rgba(0, 123, 255, 0.3)';
+            });
+            
+            window.addEventListener('mouseleave', () => {
+                window.style.boxShadow = '0 8px 32px rgba(0, 123, 255, 0.1)';
+            });
+        });
+
+        // Interactive terminal prompt effect
+        document.querySelectorAll('input, textarea').forEach(input => {
+            input.addEventListener('focus', () => {
+                input.style.borderColor = '#00BFFF';
+                input.style.boxShadow = '0 0 10px rgba(0, 191, 255, 0.3)';
+            });
+            
+            input.addEventListener('blur', () => {
+                input.style.borderColor = '#2A2A2A';
+                input.style.boxShadow = 'none';
+            });
+        });
+    </script>
+</body>
+</html>
