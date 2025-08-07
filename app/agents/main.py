@@ -49,6 +49,8 @@ analyzer = MultiLanguageCodeAnalyzer()
 
 class CodeAnalysisRequest(BaseModel):
     code: str
+    time: str 
+    space: str 
     language: Optional[str] = None
     generate_docs: Optional[bool] = True
     generate_viz: Optional[bool] = True
@@ -58,12 +60,13 @@ class CodeAnalysisResponse(BaseModel):
     status: str
     analysis_id: Optional[str] = None
     visualization_path: Optional[str] = None
-    visualization_url: Optional[str] = None  # Add this for web access
+    visualization_url: Optional[str] = None
     documentation: Optional[str] = None
     refactoring_suggestions: Optional[str] = None
     complexity_analysis: Optional[str] = None
     improvement_suggestions: Optional[str] = None
     message: Optional[str] = None
+    results: dict
 
 # Create directories
 UPLOAD_DIR = "uploads"
@@ -71,7 +74,27 @@ RESULTS_DIR = "app/static/results"  # For storing visualizations
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
-@app.post("/analyze/code", response_model=CodeAnalysisResponse)
+def extract_complexity_from_analysis(complexity_text: str) -> dict:
+    """Extract time and space complexity from the analysis text"""
+    if not complexity_text:
+        return {"time": "O(n)", "space": "O(1)"}
+    
+    import re
+    
+    # Extract time complexity
+    time_match = re.search(r'Time Complexity:\s*([O\(][^)]*\))', complexity_text, re.IGNORECASE)
+    time_complexity = time_match.group(1) if time_match else "O(n)"
+    
+    # Extract space complexity  
+    space_match = re.search(r'Space Complexity:\s*([O\(][^)]*\))', complexity_text, re.IGNORECASE)
+    space_complexity = space_match.group(1) if space_match else "O(1)"
+    
+    return {
+        "time": time_complexity,
+        "space": space_complexity
+    }
+
+@app.post("/analyze/code")
 async def analyze_code_form(
     request: Request,
     code: str = Form(...),
@@ -79,150 +102,85 @@ async def analyze_code_form(
     options: str = Form("complexity,documentation")
 ):
     """
-    Analyze code from form data (for web interface)
+    Analyze code from form data (for web interface) and give a perfect analysis for the complete code structure.
     """
     try:
         # Generate unique analysis ID
         analysis_id = str(uuid.uuid4())[:8]
         
-        # Call analyzer
+        print(f"🚀 Starting analysis with ID: {analysis_id}")
+        print(f"📝 Code length: {len(code)} characters")
+        print(f"🔤 Language: {language}")
+        print(f"⚙️ Options: {options}")
+        
+        # Call your analyzer
         results = analyzer.analyze_code_complete(
             code=code,
-            display_docs=False,
-            save_docs=False
+            display_docs=False,  # Don't display in terminal for web
+            save_docs=False      # Don't save files, return content
         )
         
-        response_data = {
-            "status": "success",
-            "analysis_id": analysis_id,
-            "message": "Analysis completed successfully"
-        }
+        print(f"✅ Agent analysis complete. Results keys: {list(results.keys())}")
         
-        # Handle visualization
+        # Handle visualization file
+        visualization_url = None
         if results.get('visualization') and os.path.exists(results['visualization']):
-            # Move visualization to static directory
+            # Move visualization to static directory with analysis_id
             viz_filename = f"viz_{analysis_id}.png"
             viz_destination = os.path.join(RESULTS_DIR, viz_filename)
-            shutil.move(results['visualization'], viz_destination)
             
-            response_data["visualization_path"] = viz_destination
-            response_data["visualization_url"] = f"/static/results/{viz_filename}"
-        
-        # Add other results
-        response_data.update({
-            "complexity_analysis": results.get("complexity", ""),
-            "documentation": results.get("documentation", ""),
-            "refactoring_suggestions": results.get("refactoring", ""),
-            "improvement_suggestions": results.get("improvements", "")
-        })
-        
-        return response_data
-        
-    except Exception as e:
-        print(f"Error in analyze_code_form: {str(e)}")  # Add logging
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
-
-@app.post("/analyze", response_model=CodeAnalysisResponse)
-async def analyze_code_json(request: CodeAnalysisRequest):
-    """
-    Analyze code with JSON payload (for API clients)
-    """
-    try:
-        # Generate unique analysis ID
-        analysis_id = str(uuid.uuid4())[:8]
-        
-        # Determine language
-        language = None
-        if request.language:
             try:
-                language = Language(request.language.lower())
-            except ValueError:
-                raise HTTPException(status_code=400, detail=f"Unsupported language: {request.language}")
+                shutil.move(results['visualization'], viz_destination)
+                visualization_url = f"/static/results/{viz_filename}"
+                print(f"📊 Moved visualization to: {viz_destination}")
+            except Exception as e:
+                print(f"⚠️ Error moving visualization: {e}")
         
-        # Run analysis
-        results = analyzer.analyze_code_complete(
-            request.code,
-            language=language,
-            display_docs=False,
-            save_docs=False
-        )
+        # Extract complexity information
+        complexity_data = extract_complexity_from_analysis(results.get('complexity', ''))
+        print(f"🧮 Extracted complexity: {complexity_data}")
         
+        # Build the response in the EXACT format your frontend expects
         response_data = {
-            "status": "success",
-            "analysis_id": analysis_id,
-            "message": "Code analysis completed successfully"
+            "results": {
+                "success": True,
+                "analysis_id": analysis_id,
+                "complexity_analysis": results.get("complexity", "No complexity analysis available"),
+                "documentation": results.get("documentation", "No documentation generated"),
+                "refactoring_suggestions": results.get("refactoring", "No refactoring suggestions available"),
+                "improvement_suggestions": results.get("improvements", "No improvement suggestions available"),
+                "visualization_path": viz_destination if visualization_url else None,
+                "structure_img": visualization_url,  # This is what your frontend looks for
+                "visualization_url": visualization_url
+            }
         }
         
-        # Handle visualization if requested
-        if request.generate_viz and results.get('visualization') and os.path.exists(results['visualization']):
-            viz_filename = f"viz_{analysis_id}.png"
-            viz_destination = os.path.join(RESULTS_DIR, viz_filename)
-            shutil.move(results['visualization'], viz_destination)
-            
-            response_data["visualization_path"] = viz_destination
-            response_data["visualization_url"] = f"/static/results/{viz_filename}"
-        
-        # Add other results based on request options
-        if request.generate_docs:
-            response_data["documentation"] = results.get('documentation', "")
-        
-        if request.generate_refactor:
-            response_data["refactoring_suggestions"] = results.get('refactoring', "")
-            response_data["improvement_suggestions"] = results.get('improvements', "")
-        
-        response_data["complexity_analysis"] = results.get('complexity', "")
-        
+        print(f"📤 Sending response with structure_img: {visualization_url}")
         return response_data
         
     except Exception as e:
-        print(f"Error in analyze_code_json: {str(e)}")  # Add logging
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
-
-@app.post("/analyze/file")
-async def analyze_file(
-    file: UploadFile = File(...),
-    generate_docs: bool = Form(True),
-    save_docs: bool = Form(False)
-):
-    """
-    Analyze code from a file upload
-    """
-    try:
-        # Save uploaded file temporarily
-        file_ext = Path(file.filename).suffix
-        temp_file_path = Path(UPLOAD_DIR) / f"upload_{uuid.uuid4()}{file_ext}"
+        print(f"❌ Error in analyze_code_form: {str(e)}")
+        import traceback
+        traceback.print_exc()
         
-        with open(temp_file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        
-        # Read file content
-        with open(temp_file_path, "r", encoding='utf-8') as f:
-            code = f.read()
-        
-        # Create request object and analyze
-        request_obj = CodeAnalysisRequest(
-            code=code,
-            generate_docs=generate_docs,
-            generate_viz=True,
-            generate_refactor=True
-        )
-        
-        return await analyze_code_json(request_obj)
-    
-    except Exception as e:
-        print(f"Error in analyze_file: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # Cleanup
-        if hasattr(file, 'file') and file.file:
-            file.file.close()
-        if 'temp_file_path' in locals() and temp_file_path.exists():
-            temp_file_path.unlink()
+        # Return error in the expected format
+        return {
+            "results": {
+                "success": False,
+                "error": str(e),
+                "analysis_id": None,
+                "complexity_analysis": "Analysis failed",
+                "documentation": "Documentation generation failed",
+                "refactoring_suggestions": "Refactoring analysis failed", 
+                "improvement_suggestions": "Improvement analysis failed",
+                "structure_img": None
+            }
+        }
 
 @app.get("/visualization/{analysis_id}")
 async def get_visualization_by_id(analysis_id: str):
     """
-    Retrieve visualization by analysis ID
+    Retrieve visualization by analysis ID and display it in the section also 
     """
     viz_path = os.path.join(RESULTS_DIR, f"viz_{analysis_id}.png")
     if os.path.exists(viz_path):
@@ -261,8 +219,7 @@ def read_root():
     index_path = "app/static/index.html"
     if os.path.exists(index_path):
         return FileResponse(index_path)
-    return {"message": "Welcome to Code Analyzer API", "docs": "/docs"}
-
+   
 # Setup static file serving
 static_path = os.path.join(os.path.dirname(__file__), "..", "static")
 app.mount("/static", StaticFiles(directory=static_path), name="static")

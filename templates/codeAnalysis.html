@@ -3,91 +3,313 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.24.1/themes/prism-tomorrow.min.css" rel="stylesheet" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.24.1/components/prism-core.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.24.1/plugins/autoloader/prism-autoloader.min.js"></script>
     <title>ByteBuddy - Advanced Code Analysis</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-    <script>
-        // Tab switching functionality
-        function switchTab(tabName) {
-            // Hide all tabs
-            const tabs = document.querySelectorAll('.tab-content');
-            tabs.forEach(tab => tab.classList.add('hidden'));
-            
-            // Remove active class from all tab buttons
-            const tabButtons = document.querySelectorAll('.tab-button');
-            tabButtons.forEach(button => {
-                button.classList.remove('border-electric-blue', 'text-electric-blue');
-                button.classList.add('border-terminal-border', 'text-terminal-text');
+
+<script>
+class ByteBuddyAnalyzer {
+    constructor() {
+        this.currentSessionId = null;
+        // Connect to the form using its correct ID from your HTML
+        this.initializeFormHandling();
+    }
+
+    initializeFormHandling() {
+        // Correctly targeting the form ID from your HTML
+        const form = document.getElementById('code-analysis-form');
+        if (form) {
+            form.addEventListener('submit', (e) => this.handleFormSubmit(e));
+        } else {
+            console.error('CRITICAL: Form with ID "code-analysis-form" was not found!');
+        }
+    }
+
+    async handleFormSubmit(event) {
+        event.preventDefault();
+        const code = document.getElementById('code-input').value;
+        const language = document.getElementById('language').value;
+
+        if (!code || code.trim() === '') {
+            this.showAlert('Please enter some code to analyze!', 'error');
+            return;
+        }
+
+        const selectedOptions = Array.from(document.querySelectorAll('input[name="options"]:checked'))
+                                     .map(cb => cb.value);
+
+        if (selectedOptions.length === 0) {
+            this.showAlert('Please select at least one analysis option!', 'error');
+            return;
+        }
+
+        this.showLoadingState();
+
+        try {
+            const formData = new FormData();
+            formData.append('code', code);
+            formData.append('language', language);
+            formData.append('options', selectedOptions.join(','));
+
+            console.log('🚀 Sending request to /analyze/code...');
+            const response = await fetch('/analyze/code', {
+                method: 'POST',
+                body: formData
             });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({'results': {'error': 'Server returned a non-JSON error response.'}}));
+                throw new Error(errorData.results?.error || `HTTP error! status: ${response.status}`);
+            }
+
+            const result = await response.json();
+            console.log('📥 Analysis result received:', result);
+
+            if (result.results?.success === false) {
+                 throw new Error(result.results.error || 'Analysis failed on the server.');
+            }
             
-            // Show selected tab
-            document.getElementById(tabName).classList.remove('hidden');
-            
-            // Activate selected tab button
-            const activeButton = document.querySelector(`[onclick="switchTab('${tabName}')"]`);
-            activeButton.classList.remove('border-terminal-border', 'text-terminal-text');
-            activeButton.classList.add('border-electric-blue', 'text-electric-blue');
+            this.processAnalysisResults(result, code);
+            this.hideLoadingState();
+            this.showAlert('Analysis completed successfully!', 'success');
+
+        } catch (error) {
+            console.error('❌ Analysis failed:', error);
+            this.showAlert(`Analysis failed: ${error.message}`, 'error');
+            this.hideLoadingState();
+        }
+    }
+
+    processAnalysisResults(result, originalCode) {
+        const analysisData = result.results;
+        if (!analysisData) {
+            this.showAlert('Received an invalid response from the server.', 'error');
+            return;
         }
 
-        // Download functionality
-        function downloadDocumentation(format) {
-            // This would connect to your backend
-            console.log(`Downloading documentation in ${format} format`);
-            // Implementation would depend on your backend API
+        this.currentSessionId = analysisData.analysis_id;
+
+        // 1. Update Complexity Tab
+        const complexityData = this.parseComplexityFromAgent(analysisData.complexity_analysis);
+        if (complexityData) {
+            this.updateComplexityTab(complexityData);
         }
 
-        // Syntax highlighting functionality
-        function updateHighlightedCode() {
-            const textarea = document.getElementById('code');
-            const highlightedCode = document.getElementById('highlightedCode');
-            const lineNumbers = document.getElementById('lineNumbers');
-            
-            // Update line numbers
-            const lines = textarea.value.split('\n');
-            lineNumbers.innerHTML = lines.map((_, i) => i + 1).join('<br>');
-            
-            // Apply syntax highlighting
-            const language = document.getElementById('language').value;
-            highlightedCode.innerHTML = Prism.highlight(
-                textarea.value, 
-                Prism.languages[language] || Prism.languages.python, 
-                language
-            );
-            
-            // Sync scroll positions
-            syncScroll();
-        }
+        // 2. Update Structure Tab
+        this.updateStructureTab(analysisData);
 
-        function syncScroll() {
-            const textarea = document.getElementById('code');
-            const highlightedCode = document.getElementById('highlightedCode');
-            const lineNumbers = document.getElementById('lineNumbers');
-            
-            highlightedCode.scrollTop = textarea.scrollTop;
-            highlightedCode.scrollLeft = textarea.scrollLeft;
-            lineNumbers.scrollTop = textarea.scrollTop;
-        }
+        // 3. Update Refactoring Tab
+        const refactoringSuggestions = this.parseRefactoringSuggestionsFromAgent(analysisData.refactoring_suggestions);
+        this.updateRefactoringTab(refactoringSuggestions);
 
-        function resetCodeEditor() {
-            document.getElementById('code').value = '';
-            updateHighlightedCode();
-        }
+        // 4. Update Documentation Tab
+        this.updateDocumentationTab(analysisData.documentation);
 
-        // Initialize on load
-        document.addEventListener('DOMContentLoaded', function() {
-            // Update on language change
-            document.getElementById('language').addEventListener('change', updateHighlightedCode);
-            
-            // Initial update
-            updateHighlightedCode();
-            
-            // Set default tab
-            switchTab('complexity');
-        });
+        // 5. Update Improvements Tab
+        this.updateImprovementsTab(analysisData.improvement_suggestions);
+
+        // Switch to the first tab to show results
+        switchTab('complexity');
+    }
+
+    // --- PARSING FUNCTIONS ---
+    parseComplexityFromAgent(complexityText) {
+        if (!complexityText || typeof complexityText !== 'string') return null;
+
+        const timeMatch = complexityText.match(/Time Complexity:\s*([O\(][^)]*\))/i);
+        const spaceMatch = complexityText.match(/Space Complexity:\s*([O\(][^)]*\))/i);
         
+        const timeComplexity = timeMatch ? timeMatch[1] : 'O(n)';
+        const spaceComplexity = spaceMatch ? spaceMatch[1] : 'O(1)';
+
+        return {
+            time_complexity: timeComplexity,
+            space_complexity: spaceComplexity,
+            full_analysis: complexityText
+        };
+    }
+
+    parseRefactoringSuggestionsFromAgent(refactoringText) {
+        if (!refactoringText || refactoringText.toLowerCase().includes("no refactoring suggestions")) return [];
+        return refactoringText
+            .split(/\n+/)
+            .map(line => line.trim())
+            .filter(line => line.length > 0 && !line.match(/^(REFACTORING|SUGGESTIONS?|={3,}|-{3,})/i))
+            .map((line, index) => {
+                const cleanLine = line.replace(/^[\d\.\-\*\+•\s]+/, '').trim();
+                return {
+                    id: index,
+                    title: `Suggestion #${index + 1}`,
+                    description: cleanLine,
+                };
+            });
+    }
+
+    // --- UI UPDATE FUNCTIONS (Adapted for your HTML) ---
+
+    updateComplexityTab(data) {
+        // Time Complexity
+        const timeEl = document.querySelector('#complexity .time-complexity');
+        if (timeEl) {
+            timeEl.textContent = data.time_complexity;
+            timeEl.style.color = this.getComplexityColor(data.time_complexity);
+        }
+        const timeDescEl = document.querySelector('#complexity .complexity-description');
+        if (timeDescEl) {
+            timeDescEl.textContent = `Analysis of time efficiency based on input size.`;
+        }
+        // You can also update the meter here if you wish
+        
+        // Space Complexity
+        const spaceEl = document.querySelector('#complexity .space-complexity');
+        if (spaceEl) {
+            spaceEl.textContent = data.space_complexity;
+            spaceEl.style.color = this.getComplexityColor(data.space_complexity);
+        }
+    }
+
+    updateStructureTab(data) {
+        const container = document.getElementById('structure-image-container'); // Targeting the new container
+        if (container && data.structure_img) {
+            container.innerHTML = `
+                <h3 class="font-bold text-cyan text-lg mb-4">Code Structure Visualization</h3>
+                <img src="${data.structure_img}?t=${new Date().getTime()}" alt="Code Structure Visualization"
+                     class="w-full h-auto rounded-lg bg-terminal-bg-secondary p-2 border border-terminal-border"
+                     onerror="this.outerHTML='<p class=\\'text-warning-red\\'>Error loading visualization.</p>'">
+            `;
+        } else if (container) {
+            container.innerHTML = `<p class="text-terminal-text">No structure visualization was generated for this code.</p>`;
+        }
+    }
+
+    updateRefactoringTab(suggestions) {
+        const container = document.querySelector('#refactoring .refactoring-content');
+        if (!container) return;
+
+        if (suggestions.length === 0) {
+            container.innerHTML = `<p class="text-terminal-text">No refactoring suggestions available. The code looks clean!</p>`;
+            return;
+        }
+
+        const suggestionsHTML = suggestions.map(s => `
+            <div class="border-l-4 border-electric-blue pl-4 mb-4">
+                <h4 class="font-bold text-bright-blue mb-1">${s.title}</h4>
+                <p class="text-sm text-terminal-text">${s.description}</p>
+            </div>
+        `).join('');
+        container.innerHTML = suggestionsHTML;
+    }
+
+    updateDocumentationTab(docText) {
+        const container = document.querySelector('#documentation .documentation-content');
+        if (container && docText) {
+            container.innerHTML = this.markdownToHtml(docText);
+        }
+    }
+
+    updateImprovementsTab(improvementText) {
+        const container = document.getElementById('improvements-content'); // Targeting the new container
+        if (container && improvementText) {
+            container.innerHTML = `<pre class="text-sm text-terminal-text whitespace-pre-wrap font-mono">${improvementText}</pre>`;
+        }
+    }
+
+    // --- UTILITY FUNCTIONS ---
+    getComplexityColor(complexity) {
+        const c = String(complexity).toLowerCase();
+        if (c.includes('1')) return '#2ED573'; // Green
+        if (c.includes('log n')) return '#40E0D0'; // Cyan
+        if (c.includes('n log n')) return '#FFA726'; // Orange
+        if (c.includes('n^2') || c.includes('n²')) return '#FF4757'; // Red
+        if (c.includes('2^n')) return '#FF4757'; // Red
+        if (c.includes('n')) return '#00BFFF'; // Bright Blue
+        return '#E0E0E0'; // Default text color
+    }
+    
+    markdownToHtml(markdown) {
+        if (!markdown) return '<p class="text-terminal-text">No documentation was generated.</p>';
+        let html = markdown
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;");
+
+        // Code blocks (```...```)
+        html = html.replace(/```(\w*?)\n([\s\S]*?)```/g, (match, lang, code) => {
+            return `<pre class="bg-terminal-bg p-3 rounded-md my-2"><code class="language-${lang || 'plaintext'}">${code.trim()}</code></pre>`;
+        });
+        html = html.replace(/`([^`]+)`/g, '<code class="bg-terminal-bg-secondary px-1 rounded text-bright-blue">$1</code>');
+        html = html.replace(/^### (.*$)/gim, '<h3 class="text-md font-bold text-cyan mt-3 mb-1">$1</h3>');
+        html = html.replace(/^## (.*$)/gim, '<h2 class="text-lg font-bold text-bright-blue mt-4 mb-2 border-b border-terminal-border pb-1">$1</h2>');
+        html = html.replace(/^# (.*$)/gim, '<h1 class="text-xl font-bold text-electric-blue mt-4 mb-2 border-b-2 border-electric-blue pb-1">$1</h1>');
+        html = html.replace(/\*\*(.*?)\*\*/g, '<strong class="text-terminal-white">$1</strong>');
+        html = html.replace(/^\s*[\*\-]\s(.*)/gm, '<ul class="list-disc list-inside ml-4"><li>$1</li></ul>');
+        html = html.replace(/<\/ul>\n?<ul class="list-disc list-inside ml-4">/g, ''); // Fix consecutive list items
+        
+        return `<div class="prose prose-invert max-w-none text-sm leading-relaxed">${html.replace(/\n/g, '<br>')}</div>`
+            .replace(/<br><(h[1-3]|ul|pre)/g, '<$1>')
+            .replace(/<\/(h[1-3]|ul|pre)><br>/g, '</$1>');
+    }
+
+    showLoadingState() {
+        const submitBtn = document.querySelector('button[type="submit"]');
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="root-prompt">sudo ./analyzing --please-wait</span>';
+        }
+    }
+
+    hideLoadingState() {
+        const submitBtn = document.querySelector('button[type="submit"]');
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<span class="root-prompt">sudo ./analyze --deep</span>';
+        }
+    }
+
+    showAlert(message, type = 'info') {
+        const alertDiv = document.createElement('div');
+        const bgColor = type === 'error' ? 'bg-warning-red' : type === 'success' ? 'bg-success-green' : 'bg-electric-blue';
+        
+        alertDiv.className = `fixed top-5 right-5 ${bgColor} text-terminal-white px-6 py-3 rounded-lg shadow-lg z-50 max-w-md animate-fade-in-up`;
+        alertDiv.innerHTML = `<div class="flex items-center"><span class="mr-3">${type === 'error' ? '❌' : '✅'}</span><span>${message}</span></div>`;
+        document.body.appendChild(alertDiv);
+        
+        setTimeout(() => alertDiv.remove(), 5000);
+    }
+}
+
+// Tab switching functionality
+function switchTab(tabName) {
+    document.querySelectorAll('.tab-content').forEach(tab => tab.classList.add('hidden'));
+    document.querySelectorAll('.tab-button').forEach(button => {
+        button.classList.remove('border-electric-blue', 'text-electric-blue');
+        button.classList.add('border-terminal-border', 'text-terminal-text');
+    });
+
+    const selectedTab = document.getElementById(tabName);
+    if (selectedTab) selectedTab.classList.remove('hidden');
+    
+    const activeButton = document.querySelector(`[onclick="switchTab('${tabName}')"]`);
+    if (activeButton) {
+        activeButton.classList.remove('border-terminal-border', 'text-terminal-text');
+        activeButton.classList.add('border-electric-blue', 'text-electric-blue');
+    }
+}
+
+function resetCodeEditor() {
+    const codeInput = document.getElementById('code-input');
+    if (codeInput) codeInput.value = '';
+}
+
+// Initialize the analyzer when DOM is loaded
+let byteBuddyAnalyzer;
+document.addEventListener('DOMContentLoaded', function() {
+    byteBuddyAnalyzer = new ByteBuddyAnalyzer();
+    switchTab('complexity');
+    console.log('🚀 ByteBuddy Analyzer initialized successfully!');
+});
+</script>
+    <script>
         tailwind.config = {
             theme: {
                 extend: {
@@ -111,7 +333,7 @@
                         'typing': 'typing 3.5s steps(40, end)',
                         'blink-caret': 'blink-caret 0.75s step-end infinite',
                         'scan': 'scan 2s linear infinite',
-                        'fade-in-up': 'fade-in-up 0.8s ease-out',
+                        'fade-in-up': 'fade-in-up 0.5s ease-out',
                         'pulse-glow': 'pulse-glow 2s ease-in-out infinite alternate'
                     },
                     keyframes: {
@@ -141,75 +363,20 @@
         }
     </script>
     <style>
-        /* Custom VS Code-like theme */
         .code-input {
             font-family: 'JetBrains Mono', monospace;
             tab-size: 4;
         }
-        .token.comment,
-        .token.prolog,
-        .token.doctype,
-        .token.cdata {
-            color: #6A9955;
-        }
-        .token.punctuation {
-            color: #D4D4D4;
-        }
-        .token.keyword {
-            color: #569CD6;
-        }
-        .token.operator {
-            color: #D4D4D4;
-        }
-        .token.string {
-            color: #CE9178;
-        }
-        .token.number {
-            color: #B5CEA8;
-        }
-        .token.function {
-            color: #DCDCAA;
-        }
-        .token.class-name {
-            color: #4EC9B0;
-        }
-        .token.boolean {
-            color: #569CD6;
-        }
-        .token.selector {
-            color: #D7BA7D;
-        }
-        .token.property {
-            color: #9CDCFE;
-        }
-        .token.tag {
-            color: #569CD6;
-        }
-        .token.attr-value {
-            color: #CE9178;
-        }
         .matrix-bg {
             background-image: 
-                linear-gradient(to bottom, rgba(18, 18, 18, 0.9), rgba(26, 26, 26, 0.9)),
+                linear-gradient(to bottom, rgba(18, 18, 18, 0.95), rgba(26, 26, 26, 0.95)),
                 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'%3E%3Ctext x='0' y='60' font-family='monospace' font-size='10' fill='%23007BFF' fill-opacity='0.05'%3E0101%3C/text%3E%3C/svg%3E");
         }
         .terminal-window {
-            background: linear-gradient(135deg, #121212 0%, #1A1A1A 100%);
+            background: linear-gradient(135deg, #1A1A1A 0%, #121212 100%);
             border: 1px solid #2A2A2A;
-            box-shadow: 0 8px 32px rgba(0, 123, 255, 0.1);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
             transition: all 0.3s ease;
-        }
-        .terminal-window:hover {
-            box-shadow: 0 8px 32px rgba(0, 123, 255, 0.2);
-        }
-        .scan-button {
-            background-image: linear-gradient(
-                to bottom,
-                rgba(0, 123, 255, 0.3) 0%,
-                transparent 50%,
-                rgba(0, 123, 255, 0.3) 100%
-            );
-            background-size: 100% 20px;
         }
         .prompt::before {
             content: "user@bytebuddy:~$";
@@ -221,26 +388,10 @@
             color: #FF4757;
             margin-right: 8px;
         }
-        .complexity-meter {
-            background: linear-gradient(90deg, #2ED573 0%, #FFA726 50%, #FF4757 100%);
-            height: 8px;
-            border-radius: 4px;
-        }
-        .complexity-indicator {
-            height: 12px;
-            width: 12px;
-            border-radius: 50%;
-            background: white;
-            border: 2px solid #121212;
-            position: relative;
-            top: -2px;
-            transition: left 0.3s ease;
-        }
     </style>
 </head>
-<body class="h-full font-mono text-terminal-text matrix-bg flex flex-col">
-    <!-- Header -->
-    <header class="sticky top-0 z-50 bg-terminal-bg border-b border-terminal-border py-3 px-6">
+<body class="h-full font-mono text-terminal-text bg-terminal-bg flex flex-col">
+    <header class="sticky top-0 z-50 bg-terminal-bg/80 backdrop-blur-sm border-b border-terminal-border py-3 px-6">
         <div class="container mx-auto flex justify-between items-center">
             <div class="flex items-center space-x-4">
                 <div class="flex space-x-2 mr-4">
@@ -251,7 +402,7 @@
                 <h1 class="text-xl font-bold text-terminal-white">
                     <span class="text-electric-blue">Byte</span><span class="text-bright-blue">Buddy</span>
                 </h1>
-                <div class="text-cyan ml-4">advanced_analysis.py</div>
+                <div class="text-cyan ml-4 hidden md:block">advanced_analysis.py</div>
             </div>
             <nav class="flex space-x-4">
                 <a href="#" class="px-3 py-1 rounded border border-terminal-border hover:border-electric-blue hover:text-electric-blue transition-colors duration-200">
@@ -265,13 +416,11 @@
     </header>
 
     <main class="flex-grow container mx-auto px-4 py-8 space-y-8">
-        <!-- Input Section -->
         <section class="terminal-window rounded-lg p-6 animate-fade-in-up">
             <div class="prompt text-terminal-white mb-4">Enter your code for comprehensive analysis:</div>
             
-            <form id="codeAnalysisForm" class="space-y-6">
+            <form id="code-analysis-form" class="space-y-6">
                 <div class="flex flex-col md:flex-row gap-4">
-                    <!-- Language Selector -->
                     <div class="w-full md:w-48">
                         <label for="language" class="block text-sm font-medium text-cyan mb-2">Language</label>
                         <select id="language" name="language" class="w-full bg-terminal-bg-secondary border border-terminal-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-electric-blue focus:border-electric-blue">
@@ -285,47 +434,25 @@
                             <option value="php">PHP</option>
                         </select>
                     </div>
-                    <!-- Analysis Options -->
                     <div class="flex-1">
-                        <label class="block text-sm font-medium text-cyan mb-2">Analysis Options</label>
-                        <div class="flex flex-wrap gap-3">
-                            <label class="flex items-center">
-                                <input type="checkbox" name="options" value="complexity" checked class="mr-2 accent-electric-blue">
-                                <span class="text-sm">Complexity</span>
-                            </label>
-                            <label class="flex items-center">
-                                <input type="checkbox" name="options" value="structure" checked class="mr-2 accent-electric-blue">
-                                <span class="text-sm">Structure</span>
-                            </label>
-                            <label class="flex items-center">
-                                <input type="checkbox" name="options" value="refactoring" checked class="mr-2 accent-electric-blue">
-                                <span class="text-sm">Refactoring</span>
-                            </label>
-                            <label class="flex items-center">
-                                <input type="checkbox" name="options" value="documentation" checked class="mr-2 accent-electric-blue">
-                                <span class="text-sm">Documentation</span>
-                            </label>
+                        <label class="block text-sm font-medium text-cyan mb-2">Analysis Modules</label>
+                        <div class="flex flex-wrap gap-x-4 gap-y-2">
+                            <label class="flex items-center"><input type="checkbox" name="options" value="complexity" checked class="mr-2 h-4 w-4 accent-electric-blue bg-terminal-bg-secondary border-terminal-border rounded"><span class="text-sm">Complexity</span></label>
+                            <label class="flex items-center"><input type="checkbox" name="options" value="structure" checked class="mr-2 h-4 w-4 accent-electric-blue bg-terminal-bg-secondary border-terminal-border rounded"><span class="text-sm">Structure</span></label>
+                            <label class="flex items-center"><input type="checkbox" name="options" value="refactoring" checked class="mr-2 h-4 w-4 accent-electric-blue bg-terminal-bg-secondary border-terminal-border rounded"><span class="text-sm">Refactoring</span></label>
+                            <label class="flex items-center"><input type="checkbox" name="options" value="documentation" checked class="mr-2 h-4 w-4 accent-electric-blue bg-terminal-bg-secondary border-terminal-border rounded"><span class="text-sm">Documentation</span></label>
+                            <label class="flex items-center"><input type="checkbox" name="options" value="improvements" checked class="mr-2 h-4 w-4 accent-electric-blue bg-terminal-bg-secondary border-terminal-border rounded"><span class="text-sm">Improvements</span></label>
                         </div>
                     </div>
                 </div>
 
-                <!-- Enhanced Code Input -->
                 <div>
-                    <label for="code" class="block text-sm font-medium text-cyan mb-2">Code Input</label>
-                    <div class="relative">
-                        <!-- Line numbers -->
-                        <div class="absolute left-0 top-0 h-full w-12 bg-terminal-bg-secondary border-r border-terminal-border text-right pr-2 pt-3 text-xs text-terminal-border select-none overflow-hidden" id="lineNumbers">1</div>
-                        
-                        <!-- Code editor area -->
-                        <pre class="absolute inset-0 overflow-auto pl-14 pt-3 pb-3 text-sm pointer-events-none" id="highlightedCode"></pre>
-                        
-                        <!-- Textarea for actual input -->
-                        <textarea 
-                            id="code" 
-                            name="code" 
-                            rows="15" 
-                            class="code-input w-full bg-terminal-bg-secondary border border-terminal-border rounded px-4 py-3 pl-16 text-sm focus:outline-none focus:ring-1 focus:ring-electric-blue focus:border-electric-blue text-terminal-white placeholder-terminal-border" 
-                            placeholder="def fibonacci(n):
+                    <textarea 
+                        id="code-input" 
+                        name="code" 
+                        rows="15" 
+                        class="code-input w-full bg-terminal-bg-secondary border border-terminal-border rounded px-4 py-3 text-sm focus:outline-none focus:ring-1 focus:ring-electric-blue focus:border-electric-blue text-terminal-white placeholder-terminal-border" 
+                        placeholder="def fibonacci(n):
     if n <= 1:
         return n
     return fibonacci(n-1) + fibonacci(n-2)
@@ -333,553 +460,97 @@
 # Example usage
 result = fibonacci(10)
 print(f'Fibonacci(10) = {result}')"
-                            spellcheck="false"
-                            oninput="updateHighlightedCode()"
-                            onscroll="syncScroll()"
-                        ></textarea>
-                    </div>
+                        spellcheck="false"
+                    ></textarea>
                 </div>
 
-                <!-- Action Buttons -->
                 <div class="flex space-x-4">
-                    <button type="submit" class="scan-button px-8 py-3 bg-electric-blue hover:bg-bright-blue text-terminal-white font-bold rounded transition-all duration-200 flex items-center animate-pulse-glow">
+                    <button type="submit" class="px-8 py-3 bg-electric-blue hover:bg-bright-blue text-terminal-white font-bold rounded transition-all duration-200 flex items-center animate-pulse-glow">
                         <span class="root-prompt">sudo ./analyze --deep</span>
                     </button>
-                    <button type="reset" class="px-6 py-3 bg-terminal-bg-secondary hover:bg-terminal-bg border-2 border-electric-blue text-electric-blue rounded transition-all duration-200" onclick="resetCodeEditor()">
+                    <button type="button" class="px-6 py-3 bg-terminal-bg-secondary hover:bg-terminal-bg border border-electric-blue text-electric-blue rounded transition-all duration-200" onclick="resetCodeEditor()">
                         man reset
                     </button>
                 </div>
             </form>
         </section>
 
-        <!-- Results Section with Tabs -->
         <section class="space-y-6 animate-fade-in-up" style="animation-delay: 0.2s">
             <div class="flex justify-between items-center">
                 <h2 class="text-2xl font-bold text-terminal-white">
                     <span class="text-electric-blue">Analysis</span> <span class="text-bright-blue">Dashboard</span>
                 </h2>
                 
-                <!-- Tab Navigation -->
                 <div class="flex space-x-2 bg-terminal-bg-secondary rounded-lg p-1">
-                    <button onclick="switchTab('complexity')" class="tab-button px-4 py-2 text-sm rounded border border-electric-blue text-electric-blue transition-all duration-200">
-                        Complexity
-                    </button>
-                    <button onclick="switchTab('structure')" class="tab-button px-4 py-2 text-sm rounded border border-terminal-border text-terminal-text transition-all duration-200">
-                        Structure
-                    </button>
-                    <button onclick="switchTab('refactoring')" class="tab-button px-4 py-2 text-sm rounded border border-terminal-border text-terminal-text transition-all duration-200">
-                        Refactoring
-                    </button>
-                    <button onclick="switchTab('documentation')" class="tab-button px-4 py-2 text-sm rounded border border-terminal-border text-terminal-text transition-all duration-200">
-                        Documentation
-                    </button>
-                    <button onclick="switchTab('improvements')" class="tab-button px-4 py-2 text-sm rounded border border-terminal-border text-terminal-text transition-all duration-200">
-                        Improvements
-                    </button>
+                    <button onclick="switchTab('complexity')" class="tab-button px-4 py-2 text-sm rounded border border-electric-blue text-electric-blue transition-all duration-200">Complexity</button>
+                    <button onclick="switchTab('structure')" class="tab-button px-4 py-2 text-sm rounded border border-terminal-border text-terminal-text transition-all duration-200">Structure</button>
+                    <button onclick="switchTab('refactoring')" class="tab-button px-4 py-2 text-sm rounded border border-terminal-border text-terminal-text transition-all duration-200">Refactoring</button>
+                    <button onclick="switchTab('documentation')" class="tab-button px-4 py-2 text-sm rounded border border-terminal-border text-terminal-text transition-all duration-200">Documentation</button>
+                    <button onclick="switchTab('improvements')" class="tab-button px-4 py-2 text-sm rounded border border-terminal-border text-terminal-text transition-all duration-200">Improvements</button>
                 </div>
             </div>
 
-            <!-- Tab Contents -->
             <div class="tab-contents">
-                <!-- Complexity Analysis Tab -->
                 <div id="complexity" class="tab-content">
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <!-- Time Complexity -->
-                        <div class="terminal-window rounded-lg p-6">
-                            <div class="flex items-center mb-4">
-                                <div class="w-3 h-3 rounded-full bg-warning-orange mr-3"></div>
-                                <h3 class="font-bold text-warning-orange text-lg">Time Complexity</h3>
-                            </div>
-                            <div class="space-y-4">
-                                <div class="bg-terminal-bg rounded-lg p-4">
-                                    <div class="text-3xl font-bold text-warning-orange mb-2">O(2^n)</div>
-                                    <div class="text-sm text-terminal-text">Exponential time complexity detected</div>
-                                </div>
-                                <div class="complexity-meter relative">
-                                    <div class="complexity-indicator" style="left: 80%;"></div>
-                                </div>
-                                <div class="text-sm space-y-2">
-                                    <p class="text-terminal-text">The recursive fibonacci implementation has exponential time complexity due to repeated calculations.</p>
-                                    <div class="bg-terminal-bg-secondary rounded p-3">
-                                        <div class="text-cyan font-bold mb-1">Breakdown:</div>
-                                        <ul class="text-xs space-y-1">
-                                            <li>• Each call spawns 2 more calls</li>
-                                            <li>• Tree depth: n levels</li>
-                                            <li>• Total calls: ~2^n</li>
-                                        </ul>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Space Complexity -->
                         <div class="terminal-window rounded-lg p-6">
                             <div class="flex items-center mb-4">
                                 <div class="w-3 h-3 rounded-full bg-bright-blue mr-3"></div>
-                                <h3 class="font-bold text-bright-blue text-lg">Space Complexity</h3>
+                                <h3 class="font-bold text-bright-blue text-lg">Time Complexity</h3>
                             </div>
-                            <div class="space-y-4">
-                                <div class="bg-terminal-bg rounded-lg p-4">
-                                    <div class="text-3xl font-bold text-bright-blue mb-2">O(n)</div>
-                                    <div class="text-sm text-terminal-text">Linear space complexity</div>
-                                </div>
-                                <div class="complexity-meter relative">
-                                    <div class="complexity-indicator" style="left: 30%;"></div>
-                                </div>
-                                <div class="text-sm space-y-2">
-                                    <p class="text-terminal-text">Space usage is determined by the maximum call stack depth.</p>
-                                    <div class="bg-terminal-bg-secondary rounded p-3">
-                                        <div class="text-cyan font-bold mb-1">Stack Analysis:</div>
-                                        <ul class="text-xs space-y-1">
-                                            <li>• Maximum recursion depth: n</li>
-                                            <li>• Each frame uses constant space</li>
-                                            <li>• Total space: O(n)</li>
-                                        </ul>
-                                    </div>
-                                </div>
+                            <div class="bg-terminal-bg rounded-lg p-4">
+                                <div class="text-3xl font-bold mb-2 time-complexity">O(n)</div>
+                                <div class="text-sm text-terminal-text complexity-description">Click analyze to see results</div>
+                            </div>
+                        </div>
+                        <div class="terminal-window rounded-lg p-6">
+                            <div class="flex items-center mb-4">
+                                <div class="w-3 h-3 rounded-full bg-cyan mr-3"></div>
+                                <h3 class="font-bold text-cyan text-lg">Space Complexity</h3>
+                            </div>
+                            <div class="bg-terminal-bg rounded-lg p-4">
+                                <div class="text-3xl font-bold mb-2 space-complexity">O(1)</div>
+                                <div class="text-sm text-terminal-text">Space analysis results</div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Code Structure Tab -->
                 <div id="structure" class="tab-content hidden">
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <!-- Structure Visualization -->
-                        <div class="terminal-window rounded-lg p-6">
-                            <div class="flex items-center mb-4">
-                                <div class="w-3 h-3 rounded-full bg-cyan mr-3"></div>
-                                <h3 class="font-bold text-cyan text-lg">Code Structure Diagram</h3>
-                            </div>
-                            <div class="bg-terminal-bg rounded-lg p-4 text-center">
-                                <!-- This would be replaced with actual structure PNG from backend -->
-                                <div class="bg-terminal-bg-secondary rounded-lg p-8 border-2 border-dashed border-terminal-border">
-                                    <div class="text-terminal-border mb-4">
-                                        <svg class="w-16 h-16 mx-auto" fill="currentColor" viewBox="0 0 20 20">
-                                            <path d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z"/>
-                                        </svg>
-                                    </div>
-                                    <p class="text-sm text-terminal-border">Structure diagram will be generated here</p>
-                                    <p class="text-xs text-terminal-border mt-2">{{ structure_image_url }}</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Structure Analysis -->
-                        <div class="terminal-window rounded-lg p-6">
-                            <div class="flex items-center mb-4">
-                                <div class="w-3 h-3 rounded-full bg-success-green mr-3"></div>
-                                <h3 class="font-bold text-success-green text-lg">Structure Metrics</h3>
-                            </div>
-                            <div class="space-y-4">
-                                <div class="grid grid-cols-2 gap-4">
-                                    <div class="bg-terminal-bg rounded p-3">
-                                        <div class="text-lg font-bold text-electric-blue">1</div>
-                                        <div class="text-xs text-terminal-text">Functions</div>
-                                    </div>
-                                    <div class="bg-terminal-bg rounded p-3">
-                                        <div class="text-lg font-bold text-bright-blue">0</div>
-                                        <div class="text-xs text-terminal-text">Classes</div>
-                                    </div>
-                                    <div class="bg-terminal-bg rounded p-3">
-                                        <div class="text-lg font-bold text-warning-orange">8</div>
-                                        <div class="text-xs text-terminal-text">Lines of Code</div>
-                                    </div>
-                                    <div class="bg-terminal-bg rounded p-3">
-                                        <div class="text-lg font-bold text-cyan">3</div>
-                                        <div class="text-xs text-terminal-text">Cyclomatic Complexity</div>
-                                    </div>
-                                </div>
-                                <div class="bg-terminal-bg-secondary rounded p-3">
-                                    <h4 class="font-bold text-cyan mb-2">Function Dependencies</h4>
-                                    <div class="text-sm space-y-1">
-                                        <div class="flex justify-between">
-                                            <span class="text-terminal-text">fibonacci()</span>
-                                            <span class="text-warning-orange">Self-recursive</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                    <div id="structure-image-container" class="terminal-window rounded-lg p-6">
+                        <p class="text-terminal-text">Code structure analysis will appear here after analysis.</p>
                     </div>
                 </div>
 
-                <!-- Refactoring Suggestions Tab -->
                 <div id="refactoring" class="tab-content hidden">
-                    <div class="grid grid-cols-1 gap-6">
-                        <div class="terminal-window rounded-lg p-6">
-                            <div class="flex items-center mb-4">
-                                <div class="w-3 h-3 rounded-full bg-warning-orange mr-3"></div>
-                                <h3 class="font-bold text-warning-orange text-lg">Refactoring Recommendations</h3>
-                            </div>
-                            <div class="space-y-6">
-                                <!-- High Priority -->
-                                <div class="border-l-4 border-warning-red pl-4">
-                                    <div class="flex items-center mb-2">
-                                        <span class="text-warning-red font-bold mr-2">HIGH PRIORITY</span>
-                                        <span class="bg-warning-red text-terminal-bg px-2 py-1 rounded text-xs">Performance</span>
-                                    </div>
-                                    <h4 class="font-bold text-terminal-white mb-2">Implement Memoization</h4>
-                                    <p class="text-sm text-terminal-text mb-3">The current recursive implementation recalculates the same values multiple times, leading to exponential time complexity.</p>
-                                    <div class="bg-terminal-bg-secondary rounded p-4">
-                                        <div class="text-xs text-cyan mb-2">Suggested Implementation:</div>
-                                        <pre class="text-xs text-terminal-white overflow-x-auto"><code>def fibonacci_memo(n, memo={}):
-    if n in memo:
-        return memo[n]
-    if n <= 1:
-        return n
-    memo[n] = fibonacci_memo(n-1, memo) + fibonacci_memo(n-2, memo)
-    return memo[n]</code></pre>
-                                    </div>
-                                </div>
-
-                                <!-- Medium Priority -->
-                                <div class="border-l-4 border-warning-orange pl-4">
-                                    <div class="flex items-center mb-2">
-                                        <span class="text-warning-orange font-bold mr-2">MEDIUM PRIORITY</span>
-                                        <span class="bg-warning-orange text-terminal-bg px-2 py-1 rounded text-xs">Code Quality</span>
-                                    </div>
-                                    <h4 class="font-bold text-terminal-white mb-2">Add Input Validation</h4>
-                                    <p class="text-sm text-terminal-text mb-3">Function should handle negative inputs and non-integer values gracefully.</p>
-                                    <div class="bg-terminal-bg-secondary rounded p-4">
-                                        <div class="text-xs text-cyan mb-2">Suggested Addition:</div>
-                                        <pre class="text-xs text-terminal-white overflow-x-auto"><code>if not isinstance(n, int) or n < 0:
-    raise ValueError("Input must be a non-negative integer")</code></pre>
-                                    </div>
-                                </div>
-
-                                <!-- Low Priority -->
-                                <div class="border-l-4 border-success-green pl-4">
-                                    <div class="flex items-center mb-2">
-                                        <span class="text-success-green font-bold mr-2">LOW PRIORITY</span>
-                                        <span class="bg-success-green text-terminal-bg px-2 py-1 rounded text-xs">Documentation</span>
-                                    </div>
-                                    <h4 class="font-bold text-terminal-white mb-2">Add Docstrings</h4>
-                                    <p class="text-sm text-terminal-text">Function lacks proper documentation for better maintainability.</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Documentation Tab -->
-                <div id="documentation" class="tab-content hidden">
-                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        <!-- Generated Documentation -->
-                        <div class="lg:col-span-2 terminal-window rounded-lg p-6">
-                            <div class="flex items-center justify-between mb-4">
-                                <div class="flex items-center">
-                                    <div class="w-3 h-3 rounded-full bg-bright-blue mr-3"></div>
-                                    <h3 class="font-bold text-bright-blue text-lg">Auto-Generated Documentation</h3>
-                                </div>
-                                <div class="flex space-x-2">
-                                    <button onclick="downloadDocumentation('md')" class="px-3 py-1 bg-electric-blue hover:bg-bright-blue text-terminal-white rounded text-xs transition-colors">
-                                        📄 MD
-                                    </button>
-                                    <button onclick="downloadDocumentation('pdf')" class="px-3 py-1 bg-warning-orange hover:bg-warning-red text-terminal-white rounded text-xs transition-colors">
-                                        📋 PDF
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="bg-terminal-bg rounded-lg p-4 max-h-96 overflow-y-auto">
-                                <div class="prose prose-invert max-w-none">
-                                    <div class="mb-6">
-                                        <h1 class="text-xl font-bold text-terminal-white mb-2">Fibonacci Function Documentation</h1>
-                                        <div class="text-sm text-terminal-border mb-4">Generated on: {{ current_date }}</div>
-                                    </div>
-                                    
-                                    <div class="space-y-4 text-sm">
-                                        <section>
-                                            <h2 class="text-lg font-bold text-electric-blue mb-2">Function Overview</h2>
-                                            <div class="bg-terminal-bg-secondary rounded p-3">
-                                                <p class="text-terminal-text"><strong>Name:</strong> fibonacci</p>
-                                                <p class="text-terminal-text"><strong>Purpose:</strong> Calculates the nth Fibonacci number using recursive approach</p>
-                                                <p class="text-terminal-text"><strong>Time Complexity:</strong> O(2^n)</p>
-                                                <p class="text-terminal-text"><strong>Space Complexity:</strong> O(n)</p>
-                                            </div>
-                                        </section>
-
-                                        <section>
-                                            <h2 class="text-lg font-bold text-electric-blue mb-2">Parameters</h2>
-                                            <div class="bg-terminal-bg-secondary rounded p-3">
-                                                <ul class="space-y-1">
-                                                    <li class="text-terminal-text"><strong>n</strong> (int): The position in the Fibonacci sequence</li>
-                                                </ul>
-                                            </div>
-                                        </section>
-
-                                        <section>
-                                            <h2 class="text-lg font-bold text-electric-blue mb-2">Return Value</h2>
-                                            <div class="bg-terminal-bg-secondary rounded p-3">
-                                                <p class="text-terminal-text">Returns the nth Fibonacci number as an integer</p>
-                                            </div>
-                                        </section>
-
-                                        <section>
-                                            <h2 class="text-lg font-bold text-electric-blue mb-2">Algorithm Description</h2>
-                                            <div class="bg-terminal-bg-secondary rounded p-3">
-                                                <p class="text-terminal-text">This implementation uses a recursive approach where:</p>
-                                                <ul class="list-disc list-inside mt-2 space-y-1 text-terminal-text">
-                                                    <li>Base case: if n ≤ 1, return n</li>
-                                                    <li>Recursive case: return fibonacci(n-1) + fibonacci(n-2)</li>
-                                                </ul>
-                                            </div>
-                                        </section>
-
-                                        <section>
-                                            <h2 class="text-lg font-bold text-electric-blue mb-2">Usage Examples</h2>
-                                            <div class="bg-terminal-bg-secondary rounded p-3">
-                                                <pre class="text-terminal-white text-xs"><code># Basic usage
-result = fibonacci(5)  # Returns 5
-
-# Sequence generation
-for i in range(10):
-    print(f"F({i}) = {fibonacci(i)}")</code></pre>
-                                            </div>
-                                        </section>
-
-                                        <section>
-                                            <h2 class="text-lg font-bold text-electric-blue mb-2">Known Issues</h2>
-                                            <div class="bg-terminal-bg-secondary rounded p-3">
-                                                <ul class="list-disc list-inside space-y-1 text-warning-orange">
-                                                    <li>Exponential time complexity makes it impractical for large n</li>
-                                                    <li>No input validation for negative numbers</li>
-                                                    <li>Stack overflow risk for very large inputs</li>
-                                                </ul>
-                                            </div>
-                                        </section>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Documentation Stats -->
-                        <div class="terminal-window rounded-lg p-6">
-                            <div class="flex items-center mb-4">
-                                <div class="w-3 h-3 rounded-full bg-cyan mr-3"></div>
-                                <h3 class="font-bold text-cyan text-lg">Doc Stats</h3>
-                            </div>
-                            <div class="space-y-4">
-                                <div class="grid grid-cols-1 gap-3">
-                                    <div class="bg-terminal-bg rounded p-3">
-                                        <div class="text-lg font-bold text-electric-blue">852</div>
-                                        <div class="text-xs text-terminal-text">Total Words</div>
-                                    </div>
-                                    <div class="bg-terminal-bg rounded p-3">
-                                        <div class="text-lg font-bold text-bright-blue">6</div>
-                                        <div class="text-xs text-terminal-text">Sections</div>
-                                    </div>
-                                    <div class="bg-terminal-bg rounded p-3">
-                                        <div class="text-lg font-bold text-success-green">3</div>
-                                        <div class="text-xs text-terminal-text">Code Examples</div>
-                                    </div>
-                                </div>
-                                
-                                <div class="bg-terminal-bg-secondary rounded p-3">
-                                    <h4 class="font-bold text-cyan mb-2">Coverage</h4>
-                                    <div class="space-y-2">
-                                        <div class="flex justify-between text-sm">
-                                            <span class="text-terminal-text">Functions</span>
-                                            <span class="text-success-green">100%</span>
-                                        </div>
-                                        <div class="flex justify-between text-sm">
-                                            <span class="text-terminal-text">Parameters</span>
-                                            <span class="text-success-green">100%</span>
-                                        </div>
-                                        <div class="flex justify-between text-sm">
-                                            <span class="text-terminal-text">Examples</span>
-                                            <span class="text-warning-orange">75%</span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="bg-terminal-bg-secondary rounded p-3">
-                                    <h4 class="font-bold text-cyan mb-2">Export Options</h4>
-                                    <div class="space-y-2">
-                                        <button onclick="downloadDocumentation('md')" class="w-full px-3 py-2 bg-electric-blue hover:bg-bright-blue text-terminal-white rounded text-sm transition-colors">
-                                            Download Markdown
-                                        </button>
-                                        <button onclick="downloadDocumentation('pdf')" class="w-full px-3 py-2 bg-warning-orange hover:bg-warning-red text-terminal-white rounded text-sm transition-colors">
-                                            Download PDF
-                                        </button>
-                                        <button onclick="downloadDocumentation('html')" class="w-full px-3 py-2 bg-cyan hover:bg-bright-blue text-terminal-bg rounded text-sm transition-colors">
-                                            Download HTML
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Improvements Tab -->
-                <div id="improvements" class="tab-content hidden">
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <!-- Performance Improvements -->
-                        <div class="terminal-window rounded-lg p-6">
-                            <div class="flex items-center mb-4">
-                                <div class="w-3 h-3 rounded-full bg-success-green mr-3"></div>
-                                <h3 class="font-bold text-success-green text-lg">Performance Optimizations</h3>
-                            </div>
-                            <div class="space-y-4">
-                                <div class="border border-success-green rounded-lg p-4 bg-success-green bg-opacity-10">
-                                    <div class="flex items-center mb-2">
-                                        <span class="text-success-green font-bold mr-2">✓ RECOMMENDED</span>
-                                        <span class="bg-success-green text-terminal-bg px-2 py-1 rounded text-xs">High Impact</span>
-                                    </div>
-                                    <h4 class="font-bold text-terminal-white mb-2">Dynamic Programming Solution</h4>
-                                    <p class="text-sm text-terminal-text mb-3">Replace recursion with iterative bottom-up approach for O(n) time complexity.</p>
-                                    <div class="bg-terminal-bg rounded p-3">
-                                        <div class="text-xs text-cyan mb-2">Optimized Code:</div>
-                                        <pre class="text-xs text-terminal-white overflow-x-auto"><code>def fibonacci_dp(n):
-    if n <= 1:
-        return n
-    
-    a, b = 0, 1
-    for i in range(2, n + 1):
-        a, b = b, a + b
-    return b</code></pre>
-                                    </div>
-                                    <div class="mt-3 text-xs">
-                                        <span class="text-success-green">Performance gain: ~2000x faster for n=40</span>
-                                    </div>
-                                </div>
-
-                                <div class="border border-bright-blue rounded-lg p-4 bg-bright-blue bg-opacity-10">
-                                    <div class="flex items-center mb-2">
-                                        <span class="text-bright-blue font-bold mr-2">⚡ OPTIMIZATION</span>
-                                        <span class="bg-bright-blue text-terminal-bg px-2 py-1 rounded text-xs">Medium Impact</span>
-                                    </div>
-                                    <h4 class="font-bold text-terminal-white mb-2">Matrix Exponentiation</h4>
-                                    <p class="text-sm text-terminal-text mb-3">For very large n, use matrix exponentiation for O(log n) complexity.</p>
-                                    <div class="text-xs">
-                                        <span class="text-bright-blue">Best for: n > 10^6</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Code Quality Improvements -->
-                        <div class="terminal-window rounded-lg p-6">
-                            <div class="flex items-center mb-4">
-                                <div class="w-3 h-3 rounded-full bg-electric-blue mr-3"></div>
-                                <h3 class="font-bold text-electric-blue text-lg">Code Quality Enhancements</h3>
-                            </div>
-                            <div class="space-y-4">
-                                <div class="bg-terminal-bg-secondary rounded-lg p-4">
-                                    <div class="flex items-center mb-2">
-                                        <span class="text-electric-blue mr-2">📝</span>
-                                        <h4 class="font-bold text-terminal-white">Add Type Hints</h4>
-                                    </div>
-                                    <p class="text-sm text-terminal-text mb-3">Improve code readability and enable better IDE support.</p>
-                                    <div class="bg-terminal-bg rounded p-3">
-                                        <pre class="text-xs text-terminal-white"><code>def fibonacci(n: int) -> int:</code></pre>
-                                    </div>
-                                </div>
-
-                                <div class="bg-terminal-bg-secondary rounded-lg p-4">
-                                    <div class="flex items-center mb-2">
-                                        <span class="text-electric-blue mr-2">🛡️</span>
-                                        <h4 class="font-bold text-terminal-white">Error Handling</h4>
-                                    </div>
-                                    <p class="text-sm text-terminal-text mb-3">Add proper exception handling for edge cases.</p>
-                                    <div class="bg-terminal-bg rounded p-3">
-                                        <pre class="text-xs text-terminal-white"><code>if n < 0:
-    raise ValueError("n must be non-negative")</code></pre>
-                                    </div>
-                                </div>
-
-                                <div class="bg-terminal-bg-secondary rounded-lg p-4">
-                                    <div class="flex items-center mb-2">
-                                        <span class="text-electric-blue mr-2">📚</span>
-                                        <h4 class="font-bold text-terminal-white">Documentation</h4>
-                                    </div>
-                                    <p class="text-sm text-terminal-text mb-3">Add comprehensive docstring following PEP 257.</p>
-                                    <div class="bg-terminal-bg rounded p-3">
-                                        <pre class="text-xs text-terminal-white"><code>"""Calculate the nth Fibonacci number.
-                                        
-Args:
-    n (int): Position in sequence
-    
-Returns:
-    int: The nth Fibonacci number
-"""</code></pre>
-                                    </div>
-                                </div>
-
-                                <div class="bg-terminal-bg-secondary rounded-lg p-4">
-                                    <div class="flex items-center mb-2">
-                                        <span class="text-electric-blue mr-2">🧪</span>
-                                        <h4 class="font-bold text-terminal-white">Unit Tests</h4>
-                                    </div>
-                                    <p class="text-sm text-terminal-text">Add comprehensive test coverage.</p>
-                                    <div class="text-xs text-cyan">
-                                        Recommended: pytest framework
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Overall Improvement Score -->
-                    <div class="terminal-window rounded-lg p-6 mt-6">
+                    <div class="terminal-window rounded-lg p-6">
                         <div class="flex items-center mb-4">
                             <div class="w-3 h-3 rounded-full bg-warning-orange mr-3"></div>
-                            <h3 class="font-bold text-warning-orange text-lg">Improvement Potential</h3>
+                            <h3 class="font-bold text-warning-orange text-lg">Refactoring Recommendations</h3>
                         </div>
-                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                            <div class="text-center">
-                                <div class="relative w-20 h-20 mx-auto mb-2">
-                                    <svg class="w-20 h-20 transform -rotate-90" viewBox="0 0 100 100">
-                                        <circle cx="50" cy="50" r="40" stroke="#2A2A2A" stroke-width="8" fill="none"/>
-                                        <circle cx="50" cy="50" r="40" stroke="#FF4757" stroke-width="8" fill="none" 
-                                                stroke-dasharray="251.2" stroke-dashoffset="75.36" stroke-linecap="round"/>
-                                    </svg>
-                                    <div class="absolute inset-0 flex items-center justify-center">
-                                        <span class="text-lg font-bold text-warning-red">70%</span>
-                                    </div>
-                                </div>
-                                <div class="text-sm text-terminal-text">Performance</div>
-                            </div>
-                            <div class="text-center">
-                                <div class="relative w-20 h-20 mx-auto mb-2">
-                                    <svg class="w-20 h-20 transform -rotate-90" viewBox="0 0 100 100">
-                                        <circle cx="50" cy="50" r="40" stroke="#2A2A2A" stroke-width="8" fill="none"/>
-                                        <circle cx="50" cy="50" r="40" stroke="#FFA726" stroke-width="8" fill="none" 
-                                                stroke-dasharray="251.2" stroke-dashoffset="125.6" stroke-linecap="round"/>
-                                    </svg>
-                                    <div class="absolute inset-0 flex items-center justify-center">
-                                        <span class="text-lg font-bold text-warning-orange">50%</span>
-                                    </div>
-                                </div>
-                                <div class="text-sm text-terminal-text">Readability</div>
-                            </div>
-                            <div class="text-center">
-                                <div class="relative w-20 h-20 mx-auto mb-2">
-                                    <svg class="w-20 h-20 transform -rotate-90" viewBox="0 0 100 100">
-                                        <circle cx="50" cy="50" r="40" stroke="#2A2A2A" stroke-width="8" fill="none"/>
-                                        <circle cx="50" cy="50" r="40" stroke="#FFA726" stroke-width="8" fill="none" 
-                                                stroke-dasharray="251.2" stroke-dashoffset="175.84" stroke-linecap="round"/>
-                                    </svg>
-                                    <div class="absolute inset-0 flex items-center justify-center">
-                                        <span class="text-lg font-bold text-warning-orange">30%</span>
-                                    </div>
-                                </div>
-                                <div class="text-sm text-terminal-text">Documentation</div>
-                            </div>
-                            <div class="text-center">
-                                <div class="relative w-20 h-20 mx-auto mb-2">
-                                    <svg class="w-20 h-20 transform -rotate-90" viewBox="0 0 100 100">
-                                        <circle cx="50" cy="50" r="40" stroke="#2A2A2A" stroke-width="8" fill="none"/>
-                                        <circle cx="50" cy="50" r="40" stroke="#FF4757" stroke-width="8" fill="none" 
-                                                stroke-dasharray="251.2" stroke-dashoffset="226.08" stroke-linecap="round"/>
-                                    </svg>
-                                    <div class="absolute inset-0 flex items-center justify-center">
-                                        <span class="text-lg font-bold text-warning-red">10%</span>
-                                    </div>
-                                </div>
-                                <div class="text-sm text-terminal-text">Testing</div>
-                            </div>
+                        <div class="refactoring-content bg-terminal-bg-secondary rounded p-4 max-h-96 overflow-y-auto">
+                            <p class="text-terminal-text">Refactoring suggestions will appear here after analysis.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="documentation" class="tab-content hidden">
+                    <div class="terminal-window rounded-lg p-6">
+                        <div class="flex items-center mb-4">
+                            <div class="w-3 h-3 rounded-full bg-success-green mr-3"></div>
+                            <h3 class="font-bold text-success-green text-lg">Auto-Generated Documentation</h3>
+                        </div>
+                        <div class="documentation-content bg-terminal-bg-secondary rounded p-4 max-h-96 overflow-y-auto">
+                            <p class="text-terminal-text">Documentation will be generated here after analysis.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="improvements" class="tab-content hidden">
+                    <div class="terminal-window rounded-lg p-6">
+                        <h3 class="font-bold text-electric-blue text-lg mb-4">Improvement Suggestions</h3>
+                        <div id="improvements-content" class="bg-terminal-bg-secondary rounded-lg p-4 max-h-96 overflow-y-auto">
+                            <p class="text-terminal-text">Improvement suggestions will appear here after analysis.</p>
                         </div>
                     </div>
                 </div>
@@ -887,24 +558,9 @@ Returns:
         </section>
     </main>
 
-    <!-- Footer -->
-    <footer class="bg-terminal-bg border-t border-terminal-border py-4 px-6 text-center text-sm text-terminal-text">
+    <footer class="bg-terminal-bg/80 border-t border-terminal-border py-4 px-6 text-center text-sm text-terminal-text">
         <div class="container mx-auto">
-            <div class="flex flex-col md:flex-row justify-between items-center">
-                <div class="mb-2 md:mb-0">
-                    <span class="text-electric-blue">ByteBuddy</span> © 2024 | 
-                    <span class="text-cyan">v2.0.0-beta</span>
-                </div>
-                <div class="flex space-x-4">
-                    <a href="#" class="hover:text-bright-blue transition-colors duration-200">./docs</a>
-                    <a href="#" class="hover:text-bright-blue transition-colors duration-200">./github</a>
-                    <a href="#" class="hover:text-bright-blue transition-colors duration-200">./api</a>
-                    <a href="#" class="hover:text-bright-blue transition-colors duration-200">./contact</a>
-                </div>
-            </div>
-            <div class="mt-2 text-xs text-terminal-border">
-                System: Linux x86_64 | Memory: 32GB | CPU: 16 cores @ 3.8GHz | Analysis Engine: v2.1.3
-            </div>
+            <p><span class="text-electric-blue">ByteBuddy</span> © 2025 | <span class="text-cyan">Engine: Gemini</span></p>
         </div>
     </footer>
 </body>
