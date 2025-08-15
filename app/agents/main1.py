@@ -11,7 +11,7 @@ import shutil
 import uuid
 
 # Import your analyzer class
-from codeanalysis import MultiLanguageCodeAnalyzer
+from code_analysis import MultiLanguageCodeAnalyzer
 from enum import Enum
 
 class Language(Enum):

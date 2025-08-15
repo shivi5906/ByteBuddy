@@ -1,0 +1,7 @@
+
+langchain
+google-generativeai
+matplotlib
+graphviz
+jinja2
+langchain_community
