@@ -11,7 +11,7 @@ import shutil
 import uuid
 
 # Import your analyzer class
-from code_analysis import MultiLanguageCodeAnalyzer
+from agents.code_analysis import MultiLanguageCodeAnalyzer
 from enum import Enum
 
 class Language(Enum):
@@ -223,9 +223,9 @@ def read_root():
 # Setup static file serving
 static_path = os.path.join(os.path.dirname(__file__), "..", "static")
 app.mount("/static", StaticFiles(directory=static_path), name="static")
-app.mount("/js", StaticFiles(directory=os.path.join("app", "static", "js")), name="js")
-app.mount("/css", StaticFiles(directory=os.path.join("app", "static", "css")), name="css")
-app.mount("/images", StaticFiles(directory=os.path.join("app", "static", "images")), name="images")
+app.mount("/js", StaticFiles(directory=os.path.join( "static", "js")), name="js")
+app.mount("/css", StaticFiles(directory=os.path.join("static", "css")), name="css")
+app.mount("/images", StaticFiles(directory=os.path.join("static", "images")), name="images")
 
 if __name__ == "__main__":
     import uvicorn
