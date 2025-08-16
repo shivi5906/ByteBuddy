@@ -70,7 +70,7 @@ class CodeAnalysisResponse(BaseModel):
 
 # Create directories
 UPLOAD_DIR = "uploads"
-RESULTS_DIR = "app/static/results"  # For storing visualizations
+RESULTS_DIR = "static/results"  # For storing visualizations
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
@@ -216,7 +216,7 @@ def read_root():
     """
     Serve main page
     """
-    index_path = "app/static/index.html"
+    index_path = "static/index.html"
     if os.path.exists(index_path):
         return FileResponse(index_path)
    
